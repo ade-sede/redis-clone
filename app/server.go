@@ -9,6 +9,7 @@ import (
 )
 
 func handleConnection(conn net.Conn, errorChannel chan error) {
+	fmt.Println("New connection from: ", conn.RemoteAddr().String())
 	for {
 		buf := make([]byte, 1024)
 		_, err := conn.Read(buf)
@@ -22,7 +23,22 @@ func handleConnection(conn net.Conn, errorChannel chan error) {
 			return
 		}
 
-		_, err = conn.Write([]byte("+PONG\r\n"))
+		fmt.Println("Received: ", string(buf))
+
+		offset := 0
+		query, err := parseResp(buf, &offset)
+		if err != nil {
+			errorChannel <- err
+			return
+		}
+
+		response, err := execute(query)
+		if err != nil {
+			errorChannel <- err
+			return
+		}
+
+		_, err = conn.Write(response)
 		if err != nil {
 			errorChannel <- fmt.Errorf("Error writing to connection: %s", err.Error())
 			return

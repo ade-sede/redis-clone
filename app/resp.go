@@ -222,6 +222,10 @@ func parseBulkString(buf []byte, offset *int) (*query, error) {
 	}, nil
 }
 
+func encodeBulkString(str string) []byte {
+	return []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(str), str))
+}
+
 func parseArray(buf []byte, offset *int) (*query, error) {
 	length, err := atoi(buf, offset)
 	if err != nil {
