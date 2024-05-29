@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 )
 
@@ -42,7 +43,7 @@ func TestExtractBytes(t *testing.T) {
 		offset := 0
 		_, err := extractBytes(buf, &offset, 6)
 
-		if err != ErrOutOfBounds {
+		if !errors.Is(err, ErrOutOfBounds) {
 			t.Errorf("extractBytes() error = %v, wantErr %v", err, ErrOutOfBounds)
 		}
 	})

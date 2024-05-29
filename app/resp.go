@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	ErrOutOfBounds = fmt.Errorf("Out of bounds")
+	ErrOutOfBounds = fmt.Errorf("Requested index is out of bounds")
 	ErrMissingCRLF = fmt.Errorf("Missing CRLF")
 )
 
@@ -29,12 +29,12 @@ type query struct {
 
 func (q *query) asSimpleString() (string, error) {
 	if q.queryType != SimpleString {
-		return "", fmt.Errorf("Query is not a simple string")
+		return "", fmt.Errorf("Expected query type SimpleString %d, got %d", SimpleString, q.queryType)
 	}
 
 	str, ok := q.value.(string)
 	if !ok {
-		return "", fmt.Errorf("Value is not a string")
+		return "", fmt.Errorf("Expected value to be a string, got %T", q.value)
 	}
 
 	return str, nil
@@ -42,12 +42,12 @@ func (q *query) asSimpleString() (string, error) {
 
 func (q *query) asSimpleError() (string, error) {
 	if q.queryType != SimpleError {
-		return "", fmt.Errorf("Query is not a simple error")
+		return "", fmt.Errorf("Expected query type SimpleError %d, got %d", SimpleError, q.queryType)
 	}
 
 	str, ok := q.value.(string)
 	if !ok {
-		return "", fmt.Errorf("Value is not a string")
+		return "", fmt.Errorf("Expected value to be a string, got %T", q.value)
 	}
 
 	return str, nil
@@ -55,12 +55,12 @@ func (q *query) asSimpleError() (string, error) {
 
 func (q *query) asBulkString() (string, error) {
 	if q.queryType != BulkString {
-		return "", fmt.Errorf("Query is not a bulk string")
+		return "", fmt.Errorf("Expected query type BulkString %d, got %d", BulkString, q.queryType)
 	}
 
 	str, ok := q.value.(string)
 	if !ok {
-		return "", fmt.Errorf("Value is not a string")
+		return "", fmt.Errorf("Expected value to be a string, got %T", q.value)
 	}
 
 	return str, nil
@@ -68,12 +68,12 @@ func (q *query) asBulkString() (string, error) {
 
 func (q *query) asArray() ([]*query, error) {
 	if q.queryType != Array {
-		return nil, fmt.Errorf("Query is not an array")
+		return nil, fmt.Errorf("Expected query type Array %d, got %d", Array, q.queryType)
 	}
 
 	array, ok := q.value.([]*query)
 	if !ok {
-		return nil, fmt.Errorf("Value is not an array of queries")
+		return nil, fmt.Errorf("Expected value to be an array, got %T", q.value)
 	}
 
 	return array, nil
@@ -81,12 +81,12 @@ func (q *query) asArray() ([]*query, error) {
 
 func (q *query) asInteger() (int, error) {
 	if q.queryType != Integer {
-		return 0, fmt.Errorf("Query is not an integer")
+		return 0, fmt.Errorf("Expected query type Integer %d, got %d", Integer, q.queryType)
 	}
 
 	i, ok := q.value.(int)
 	if !ok {
-		return 0, fmt.Errorf("Value is not an integer")
+		return 0, fmt.Errorf("Expected value to be an integer, got %T", q.value)
 	}
 
 	return i, nil
@@ -114,7 +114,7 @@ func extractBytes(buf []byte, offset *int, size int) ([]byte, error) {
 	end := start + size
 
 	if *offset+size > len(buf) {
-		return nil, ErrOutOfBounds
+		return nil, fmt.Errorf("%w, len = %d, offset = %d, size = %d", ErrOutOfBounds, len(buf), *offset, size)
 	}
 
 	*offset = end
@@ -124,7 +124,7 @@ func extractBytes(buf []byte, offset *int, size int) ([]byte, error) {
 
 func atoi(buf []byte, offset *int) (int, error) {
 	if *offset >= len(buf) {
-		return 0, ErrOutOfBounds
+		return 0, fmt.Errorf("%w, len = %d, offset = %d", ErrOutOfBounds, len(buf), *offset)
 	}
 
 	var n int
@@ -266,7 +266,7 @@ func parseArray(buf []byte, offset *int) (*query, error) {
 
 func parseResp(buf []byte, offset *int) (*query, error) {
 	if *offset >= len(buf) {
-		return nil, ErrOutOfBounds
+		return nil, fmt.Errorf("%w, len = %d, offset = %d", ErrOutOfBounds, len(buf), *offset)
 	}
 
 	switch buf[*offset] {

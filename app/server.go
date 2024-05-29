@@ -9,15 +9,13 @@ import (
 )
 
 func handleConnection(conn net.Conn, errorChannel chan error) {
-	fmt.Println("New connection from: ", conn.RemoteAddr().String())
+	fmt.Println("New TCP connection from: ", conn.RemoteAddr().String())
 	for {
 		buf := make([]byte, 1024)
 		_, err := conn.Read(buf)
 		if err != nil {
-			if err == io.EOF {
-				errorChannel <- fmt.Errorf("EOF: Remote client closed connection")
-			} else {
-				errorChannel <- fmt.Errorf("Error reading from connection: %s", err.Error())
+			if err != io.EOF {
+				errorChannel <- fmt.Errorf("Error reading from TCP connection: err = %w", err)
 			}
 			conn.Close()
 			return
@@ -28,19 +26,19 @@ func handleConnection(conn net.Conn, errorChannel chan error) {
 		offset := 0
 		query, err := parseResp(buf, &offset)
 		if err != nil {
-			errorChannel <- err
+			errorChannel <- fmt.Errorf("Error parsing query. buf = %s, offset = %d, err = %w", string(buf), offset, err)
 			return
 		}
 
 		response, err := execute(query)
 		if err != nil {
-			errorChannel <- err
+			errorChannel <- fmt.Errorf("Error executing the command: err = %w", err)
 			return
 		}
 
 		_, err = conn.Write(response)
 		if err != nil {
-			errorChannel <- fmt.Errorf("Error writing to connection: %s", err.Error())
+			errorChannel <- fmt.Errorf("Error writing to TCP connection: err = %w", err)
 			return
 		}
 	}
@@ -53,8 +51,7 @@ func main() {
 
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	if err != nil {
-		errorLogger.Println("Failed to bind to port 6379")
-		os.Exit(1)
+		errorLogger.Fatalln(fmt.Errorf("Failed to start server: err = %w", err))
 	}
 	defer l.Close()
 
@@ -69,7 +66,7 @@ func main() {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			errorLogger.Println("Error accepting connection: ", err.Error())
+			errorLogger.Println(fmt.Errorf("Error accepting TCP connection: err = %w", err))
 			continue
 		}
 

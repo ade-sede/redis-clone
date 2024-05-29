@@ -104,7 +104,7 @@ func echo(args []*query) ([]byte, error) {
 	}
 
 	if args[0].queryType != BulkString {
-		return []byte("-ERR invalid argument\r\n"), nil
+		return []byte("-ERR invalid argument type\r\n"), nil
 	}
 
 	bulkString, err := args[0].asBulkString()
@@ -117,7 +117,7 @@ func echo(args []*query) ([]byte, error) {
 
 func execute(query *query) ([]byte, error) {
 	if query.queryType != Array {
-		return nil, fmt.Errorf("Invalid query type: %d", query.queryType)
+		return nil, fmt.Errorf("Can't execute of query type: %d. Only Arrays are supported at this time (type %d)", query.queryType, Array)
 	}
 
 	array, err := query.asArray()
