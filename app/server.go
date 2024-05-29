@@ -49,7 +49,7 @@ func handleConnection(conn net.Conn, errorChannel chan error) {
 func main() {
 	errorLogger := log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
 
-	data = make(map[string]any)
+	data = make(map[string]entry)
 
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	if err != nil {

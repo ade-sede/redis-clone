@@ -2,13 +2,22 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 )
 
-var data map[string]any
+type entry struct {
+	value     any
+	expiresAt *time.Time
+}
+
+var data map[string]entry
 
 func set(args []*query) ([]byte, error) {
-	if len(args) != 2 {
+	var expiresAt *time.Time = nil
+
+	if len(args) < 2 {
 		return []byte("-ERR wrong number of arguments\r\n"), nil
 	}
 
@@ -22,7 +31,37 @@ func set(args []*query) ([]byte, error) {
 		return nil, err
 	}
 
-	data[key] = value
+	if len(args) >= 3 {
+		option, err := args[2].asBulkString()
+		if err != nil {
+			return nil, err
+		}
+
+		if strings.EqualFold(option, "PX") {
+			if len(args) < 4 {
+				return []byte("-ERR wrong number of arguments\r\n"), nil
+			}
+
+			durationString, err := args[3].asBulkString()
+			if err != nil {
+				return nil, err
+			}
+
+			durationMs, err := strconv.Atoi(durationString)
+			if err != nil {
+				return nil, err
+			}
+
+			expiresAt = new(time.Time)
+			*expiresAt = time.Now().Add(time.Duration(durationMs) * time.Millisecond)
+		} else {
+			errorResponse := fmt.Sprintf("-ERR unsupported option '%s'\r\n", option)
+			return []byte(errorResponse), nil
+
+		}
+	}
+
+	data[key] = entry{value: value, expiresAt: expiresAt}
 
 	return []byte("+OK\r\n"), nil
 }
@@ -37,14 +76,19 @@ func get(args []*query) ([]byte, error) {
 		return nil, err
 	}
 
-	value, ok := data[key]
+	entry, ok := data[key]
 	if !ok {
 		return []byte("$-1\r\n"), nil
 	}
 
-	str, ok := value.(string)
+	str, ok := entry.value.(string)
 	if !ok {
-		return nil, fmt.Errorf("Invalid value type: %T", value)
+		return nil, fmt.Errorf("Invalid value type: %T", entry.value)
+	}
+
+	if entry.expiresAt != nil && entry.expiresAt.Before(time.Now()) {
+		delete(data, key)
+		return []byte("$-1\r\n"), nil
 	}
 
 	return encodeBulkString(str), nil
