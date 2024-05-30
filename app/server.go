@@ -1,12 +1,47 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
 )
+
+func main() {
+	errorLogger := log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
+
+	port := flag.Int("port", 6379, "port to listen to")
+	flag.Parse()
+
+	data = make(map[string]entry)
+
+	l, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", *port))
+	if err != nil {
+		errorLogger.Fatalln(fmt.Errorf("Failed to start server: err = %w", err))
+	}
+	defer l.Close()
+
+	errorChannel := make(chan error, 100)
+
+	go func() {
+		for err := range errorChannel {
+			errorLogger.Println(err)
+		}
+	}()
+
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			errorLogger.Println(fmt.Errorf("Error accepting TCP connection: err = %w", err))
+			continue
+		}
+
+		go handleConnection(conn, errorChannel)
+	}
+
+}
 
 func handleConnection(conn net.Conn, errorChannel chan error) {
 	fmt.Println("New TCP connection from: ", conn.RemoteAddr().String())
@@ -42,35 +77,4 @@ func handleConnection(conn net.Conn, errorChannel chan error) {
 			return
 		}
 	}
-}
-
-func main() {
-	errorLogger := log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
-
-	data = make(map[string]entry)
-
-	l, err := net.Listen("tcp", "0.0.0.0:6379")
-	if err != nil {
-		errorLogger.Fatalln(fmt.Errorf("Failed to start server: err = %w", err))
-	}
-	defer l.Close()
-
-	errorChannel := make(chan error, 100)
-
-	go func() {
-		for err := range errorChannel {
-			errorLogger.Println(err)
-		}
-	}()
-
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			errorLogger.Println(fmt.Errorf("Error accepting TCP connection: err = %w", err))
-			continue
-		}
-
-		go handleConnection(conn, errorChannel)
-	}
-
 }
