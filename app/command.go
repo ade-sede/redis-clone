@@ -21,18 +21,18 @@ func set(args []*query) ([]byte, error) {
 		return []byte("-ERR wrong number of arguments\r\n"), nil
 	}
 
-	key, err := args[0].asBulkString()
+	key, err := args[0].asString()
 	if err != nil {
 		return nil, err
 	}
 
-	value, err := args[1].asBulkString()
+	value, err := args[1].asString()
 	if err != nil {
 		return nil, err
 	}
 
 	if len(args) >= 3 {
-		option, err := args[2].asBulkString()
+		option, err := args[2].asString()
 		if err != nil {
 			return nil, err
 		}
@@ -42,7 +42,7 @@ func set(args []*query) ([]byte, error) {
 				return []byte("-ERR wrong number of arguments\r\n"), nil
 			}
 
-			durationString, err := args[3].asBulkString()
+			durationString, err := args[3].asString()
 			if err != nil {
 				return nil, err
 			}
@@ -71,7 +71,7 @@ func get(args []*query) ([]byte, error) {
 		return []byte("-ERR wrong number of arguments\r\n"), nil
 	}
 
-	key, err := args[0].asBulkString()
+	key, err := args[0].asString()
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func echo(args []*query) ([]byte, error) {
 		return []byte("-ERR invalid argument type\r\n"), nil
 	}
 
-	bulkString, err := args[0].asBulkString()
+	bulkString, err := args[0].asString()
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +125,7 @@ func execute(query *query) ([]byte, error) {
 		return nil, err
 	}
 
-	command, err := array[0].asBulkString()
+	command, err := array[0].asString()
 	if err != nil {
 		return nil, err
 	}

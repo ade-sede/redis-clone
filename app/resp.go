@@ -27,40 +27,19 @@ type query struct {
 	value     interface{}
 }
 
-func (q *query) asSimpleString() (string, error) {
-	if q.queryType != SimpleString {
-		return "", fmt.Errorf("Expected query type SimpleString %d, got %d", SimpleString, q.queryType)
+func (q *query) asString() (string, error) {
+	if q.queryType != SimpleString && q.queryType != BulkString && q.queryType != SimpleError {
+		return "", fmt.Errorf("Expected a type that can be represented as string. One of %d, %d, %d or %d, got %d", SimpleString, BulkString, SimpleError, Integer, q.queryType)
 	}
 
 	str, ok := q.value.(string)
 	if !ok {
-		return "", fmt.Errorf("Expected value to be a string, got %T", q.value)
-	}
+		int, ok := q.value.(int)
+		if !ok {
+			return "", fmt.Errorf("Expected value to be a string or an int, got %T", q.value)
+		}
 
-	return str, nil
-}
-
-func (q *query) asSimpleError() (string, error) {
-	if q.queryType != SimpleError {
-		return "", fmt.Errorf("Expected query type SimpleError %d, got %d", SimpleError, q.queryType)
-	}
-
-	str, ok := q.value.(string)
-	if !ok {
-		return "", fmt.Errorf("Expected value to be a string, got %T", q.value)
-	}
-
-	return str, nil
-}
-
-func (q *query) asBulkString() (string, error) {
-	if q.queryType != BulkString {
-		return "", fmt.Errorf("Expected query type BulkString %d, got %d", BulkString, q.queryType)
-	}
-
-	str, ok := q.value.(string)
-	if !ok {
-		return "", fmt.Errorf("Expected value to be a string, got %T", q.value)
+		return fmt.Sprintf("%d", int), nil
 	}
 
 	return str, nil

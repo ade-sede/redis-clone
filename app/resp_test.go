@@ -104,7 +104,7 @@ func TestParseSimpleString(t *testing.T) {
 			}
 
 			if got != nil {
-				str, err := got.asSimpleString()
+				str, err := got.asString()
 				if err != nil {
 					t.Errorf("parseSimpleString() error = %v", err)
 				}
@@ -136,7 +136,7 @@ func TestParseSimpleError(t *testing.T) {
 			}
 
 			if got != nil {
-				str, err := got.asSimpleError()
+				str, err := got.asString()
 				if err != nil {
 					t.Errorf("parseSimpleError() error = %v", err)
 				}
@@ -208,7 +208,7 @@ func TestParseBulkString(t *testing.T) {
 			}
 
 			if got != nil {
-				str, err := got.asBulkString()
+				str, err := got.asString()
 				if err != nil {
 					t.Errorf("parseBulkString() error = %v", err)
 				}
@@ -302,26 +302,8 @@ func helperArrayEquality(t *testing.T, arr []*query, expected []interface{}) {
 			if num != expected[i] {
 				t.Errorf("helperArrayEquality() = %v, want %v", arr, expected)
 			}
-		} else if v.queryType == BulkString {
-			str, err := v.asBulkString()
-			if err != nil {
-				t.Errorf("helperArrayEquality() error = %v", err)
-			}
-
-			if str != expected[i] {
-				t.Errorf("helperArrayEquality() = %v, want %v", arr, expected)
-			}
-		} else if v.queryType == SimpleString {
-			str, err := v.asSimpleString()
-			if err != nil {
-				t.Errorf("helperArrayEquality() error = %v", err)
-			}
-
-			if str != expected[i] {
-				t.Errorf("helperArrayEquality() = %v, want %v", arr, expected)
-			}
-		} else if v.queryType == SimpleError {
-			str, err := v.asSimpleError()
+		} else if v.queryType == BulkString || v.queryType == SimpleError || v.queryType == SimpleString {
+			str, err := v.asString()
 			if err != nil {
 				t.Errorf("helperArrayEquality() error = %v", err)
 			}
