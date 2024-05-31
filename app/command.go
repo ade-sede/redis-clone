@@ -158,9 +158,11 @@ func info(args []*query) ([]byte, error) {
 	}
 
 	if replicationRequested || requestedSections == 0 {
-		response := encodeBulkString("role:master")
-
-		return response, nil
+		if replicaof == "" {
+			return encodeBulkString("role:master"), nil
+		} else {
+			return encodeBulkString("role:slave"), nil
+		}
 	}
 
 	panic("Unreachable code")

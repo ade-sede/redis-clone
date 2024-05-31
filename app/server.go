@@ -9,10 +9,13 @@ import (
 	"os"
 )
 
+var replicaof string
+
 func main() {
 	errorLogger := log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
 
 	port := flag.Int("port", 6379, "port to listen to")
+	flag.StringVar(&replicaof, "replicaof", "", "address and port of redis instance to follow")
 	flag.Parse()
 
 	data = make(map[string]entry)
