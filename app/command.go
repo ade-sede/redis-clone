@@ -7,13 +7,6 @@ import (
 	"time"
 )
 
-type entry struct {
-	value     any
-	expiresAt *time.Time
-}
-
-var data map[string]entry
-
 var expiryDurationOptionNames = []string{"EX", "PX"}
 
 func isExpiryDurationOption(optionName string) string {
@@ -157,12 +150,26 @@ func info(args []*query) ([]byte, error) {
 		}
 	}
 
+	// no section requested or "all" section requested should result in
+	// every supported sections to be printed
 	if replicationRequested || requestedSections == 0 {
-		if replicaof == "" {
-			return encodeBulkString("role:master"), nil
+		var role string
+
+		if replicationInfo.replicaof != "" {
+			role = "slave"
 		} else {
-			return encodeBulkString("role:slave"), nil
+			role = "master"
 		}
+
+		response := fmt.Sprintf(`# Replication
+role:%s
+master_replid:%s
+master_repl_offset:%d`,
+			role,
+			replicationInfo.master_replid,
+			replicationInfo.master_repl_offset)
+
+		return encodeBulkString(response), nil
 	}
 
 	panic("Unreachable code")
