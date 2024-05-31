@@ -14,8 +14,22 @@ type entry struct {
 
 var data map[string]entry
 
+var expiryDurationOptionNames = []string{"EX", "PX"}
+
+func isExpiryDurationOption(optionName string) string {
+	for _, opt := range expiryDurationOptionNames {
+		if strings.EqualFold(optionName, opt) {
+			return opt
+		}
+	}
+
+	return ""
+}
+
 func set(args []*query) ([]byte, error) {
 	var expiresAt *time.Time = nil
+	var durationMultiplier time.Duration = 0
+	var duration int = 0
 
 	if len(args) < 2 {
 		return []byte("-ERR wrong number of arguments\r\n"), nil
@@ -31,34 +45,42 @@ func set(args []*query) ([]byte, error) {
 		return nil, err
 	}
 
-	if len(args) >= 3 {
-		option, err := args[2].asString()
+	options := args[2:]
+
+	for i, option := range options {
+		option, err := option.asString()
 		if err != nil {
 			return nil, err
 		}
 
-		if strings.EqualFold(option, "PX") {
-			if len(args) < 4 {
-				return []byte("-ERR wrong number of arguments\r\n"), nil
+		expiryDurationOption := isExpiryDurationOption(option)
+
+		if expiryDurationOption != "" {
+			if len(options) < i+2 {
+				return nil, ErrOutOfBounds
 			}
 
-			durationString, err := args[3].asString()
+			durationString, err := options[i+1].asString()
 			if err != nil {
 				return nil, err
 			}
 
-			durationMs, err := strconv.Atoi(durationString)
+			duration, err = strconv.Atoi(durationString)
 			if err != nil {
 				return nil, err
 			}
 
-			expiresAt = new(time.Time)
-			*expiresAt = time.Now().Add(time.Duration(durationMs) * time.Millisecond)
-		} else {
-			errorResponse := fmt.Sprintf("-ERR unsupported option '%s'\r\n", option)
-			return []byte(errorResponse), nil
-
+			if expiryDurationOption == "PX" {
+				durationMultiplier = time.Millisecond
+			} else if expiryDurationOption == "EX" {
+				durationMultiplier = time.Second
+			}
 		}
+	}
+
+	if duration > 0 {
+		expiresAt = new(time.Time)
+		*expiresAt = time.Now().Add(time.Duration(duration) * durationMultiplier)
 	}
 
 	data[key] = entry{value: value, expiresAt: expiresAt}
