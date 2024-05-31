@@ -137,6 +137,35 @@ func echo(args []*query) ([]byte, error) {
 	return encodeBulkString(bulkString), nil
 }
 
+func info(args []*query) ([]byte, error) {
+
+	requestedSections := 0
+	replicationRequested := false
+
+	for _, option := range args {
+		optionName, err := option.asString()
+		if err != nil {
+			return nil, err
+		}
+
+		if optionName == "replication" {
+			replicationRequested = true
+			requestedSections += 1
+		} else {
+			response := fmt.Sprintf("-ERR unsupported info section: %s\r\n", optionName)
+			return []byte(response), nil
+		}
+	}
+
+	if replicationRequested || requestedSections == 0 {
+		response := encodeBulkString("role:master")
+
+		return response, nil
+	}
+
+	panic("Unreachable code")
+}
+
 func execute(query *query) ([]byte, error) {
 	if query.queryType != Array {
 		return nil, fmt.Errorf("Can't execute of query type: %d. Only Arrays are supported at this time (type %d)", query.queryType, Array)
@@ -166,6 +195,10 @@ func execute(query *query) ([]byte, error) {
 
 	if strings.EqualFold(command, "GET") {
 		return get(array[1:])
+	}
+
+	if strings.EqualFold(command, "INFO") {
+		return info(array[1:])
 	}
 
 	errorResponse := fmt.Sprintf("-ERR unknown command '%s'\r\n", command)
