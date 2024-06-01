@@ -25,7 +25,7 @@ func main() {
 	flag.StringVar(&replicationInfo.replicaof, "replicaof", "", "address and port of redis instance to follow")
 	flag.Parse()
 
-	_, err := initReplication()
+	_, err := initReplication(*port)
 	if err != nil {
 		errorLogger.Fatalln(err)
 	}
