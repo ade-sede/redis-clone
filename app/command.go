@@ -166,8 +166,8 @@ role:%s
 master_replid:%s
 master_repl_offset:%d`,
 			role,
-			replicationInfo.master_replid,
-			replicationInfo.master_repl_offset)
+			replicationInfo.masterReplid,
+			replicationInfo.masterReplOffset)
 
 		return encodeBulkString(response), nil
 	}

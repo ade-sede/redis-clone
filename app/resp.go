@@ -201,6 +201,18 @@ func parseBulkString(buf []byte, offset *int) (*query, error) {
 	}, nil
 }
 
+func encodeStringArray(a []string) []byte {
+	response := make([]byte, 0)
+	prefix := fmt.Sprintf("*%d\r\n", len(a))
+	response = append(response, []byte(prefix)...)
+	for _, s := range a {
+		bulkString := encodeBulkString(s)
+		response = append(response, bulkString...)
+	}
+
+	return response
+}
+
 func encodeBulkString(str string) []byte {
 	return []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(str), str))
 }

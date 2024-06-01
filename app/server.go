@@ -17,12 +17,6 @@ type entry struct {
 
 var data map[string]entry
 
-var replicationInfo struct {
-	replicaof          string
-	master_replid      string
-	master_repl_offset int
-}
-
 func main() {
 	data = make(map[string]entry)
 	errorLogger := log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
@@ -31,9 +25,9 @@ func main() {
 	flag.StringVar(&replicationInfo.replicaof, "replicaof", "", "address and port of redis instance to follow")
 	flag.Parse()
 
-	if replicationInfo.replicaof == "" {
-		replicationInfo.master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
-		replicationInfo.master_repl_offset = 0
+	_, err := initReplication()
+	if err != nil {
+		errorLogger.Fatalln(err)
 	}
 
 	l, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", *port))
