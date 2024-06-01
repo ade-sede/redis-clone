@@ -180,6 +180,15 @@ func replconf(args []*query) ([]byte, error) {
 	return []byte("+OK\r\n"), nil
 }
 
+func psync(args []*query) ([]byte, error) {
+	args = nil
+	response := fmt.Sprintf("FULLRESYNC %s %d",
+		replicationInfo.masterReplId,
+		replicationInfo.masterReplOffset)
+
+	return encodeSimpleString(response), nil
+}
+
 func execute(query *query) ([]byte, error) {
 	if query.queryType != Array {
 		return nil, fmt.Errorf("Can't execute of query type: %d. Only Arrays are supported at this time (type %d)", query.queryType, Array)
@@ -217,6 +226,10 @@ func execute(query *query) ([]byte, error) {
 
 	if strings.EqualFold(command, "REPLCONF") {
 		return replconf(array[1:])
+	}
+
+	if strings.EqualFold(command, "PSYNC") {
+		return psync(array[1:])
 	}
 
 	errorResponse := fmt.Sprintf("-ERR unknown command '%s'\r\n", command)
