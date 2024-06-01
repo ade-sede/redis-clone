@@ -175,6 +175,11 @@ master_repl_offset:%d`,
 	panic("Unreachable code")
 }
 
+func replconf(args []*query) ([]byte, error) {
+	args = nil
+	return []byte("+OK\r\n"), nil
+}
+
 func execute(query *query) ([]byte, error) {
 	if query.queryType != Array {
 		return nil, fmt.Errorf("Can't execute of query type: %d. Only Arrays are supported at this time (type %d)", query.queryType, Array)
@@ -208,6 +213,10 @@ func execute(query *query) ([]byte, error) {
 
 	if strings.EqualFold(command, "INFO") {
 		return info(array[1:])
+	}
+
+	if strings.EqualFold(command, "REPLCONF") {
+		return replconf(array[1:])
 	}
 
 	errorResponse := fmt.Sprintf("-ERR unknown command '%s'\r\n", command)
