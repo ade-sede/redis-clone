@@ -18,23 +18,49 @@ func generateReplId() string {
 	return hex.EncodeToString(bytes)
 }
 
+type replica struct {
+	host            string
+	capabilites     []string
+	needsFullResync bool
+}
+
 var replicationInfo struct {
+	// Are we master ?
+	isMaster bool
+
+	// If we are the master, this is our own info.
+	// If we are a slave, this is our local copy of the master's info.
+	masterReplId     string
+	masterReplOffset int
+
+	// If we are slave, who is master we are tracking ?
+	// The 4 following fields contain the same information in different formats
+	// Replica of is the input format of the program: "10.10.3.4 5000"
+	// Replica address is the address part
+	// Replica port is the port part
+	// Replica host is the address and port merged: "10.10.3.4:5000"
 	replicaof            string
 	replicaMasterAddress string
 	replicaMasterPort    int
 	replicaMasterHost    string
-	masterReplId         string
-	masterReplOffset     int
-	masterConnection     *net.Conn
+
+	masterConnection *net.Conn
+
+	replicas []replica
 }
 
+// The slave is responsible for initiating the replication.
 // Handshake for replication is done in 3 steps:
-// 1. slave sends `PING` to master
-// 2. slave sends `REPLCONF` to master twice, in order to configure basic parameters of the replication such as which port the slave can be reached on
-// 3. slave sends `PSYNC` to initiate the replication
+// 1. slave sends `PING` to master.
+// 2. slave sends `REPLCONF` to master twice, in order to configure basic parameters of the replication such as which port the slave can be reached on.
+// 3. slave sends `PSYNC` to initiate the replication.
+//
+// Once the handshake is over, slave and master are ready to start syncing,
+// The simplest pattern to implement is FULLRESYNC.
+// As an aswer to `PSYNC` master answers with `FULLRESYNC` and proceeds to send
+// the whole RDB file to the slave.
 
 func initReplication(slaveListeningPort int) (*net.Conn, error) {
-	// We are master, it is not on us to initiate the replication
 	if replicationInfo.replicaof == "" {
 		replicationInfo.masterReplId = generateReplId()
 		replicationInfo.masterReplOffset = 0
@@ -70,6 +96,8 @@ func initReplication(slaveListeningPort int) (*net.Conn, error) {
 	}
 
 	replicationInfo.masterConnection = &conn
+
+	// TODO encapsulate handshake + response expectation
 
 	pingCommand := encodeStringArray([]string{"PING"})
 	_, err = conn.Write(pingCommand)

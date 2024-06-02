@@ -57,7 +57,26 @@ func main() {
 }
 
 func handleConnection(conn net.Conn, errorChannel chan error) {
+	var callerAddress string
+
 	fmt.Println("New TCP connection from: ", conn.RemoteAddr().String())
+	caller := conn.RemoteAddr()
+	host, _, err := net.SplitHostPort(caller.String())
+	if err != nil {
+		errorChannel <- err
+		return
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		errorChannel <- fmt.Errorf("Error parsing IP address %s", host)
+		return
+	}
+	if ip.IsLoopback() {
+		callerAddress = "localhost"
+	} else {
+		callerAddress = ip.String()
+	}
+
 	for {
 		buf := make([]byte, 1024)
 		_, err := conn.Read(buf)
@@ -78,7 +97,7 @@ func handleConnection(conn net.Conn, errorChannel chan error) {
 			return
 		}
 
-		response, err := execute(query)
+		response, err := execute(query, callerAddress)
 		if err != nil {
 			errorChannel <- fmt.Errorf("Error executing the command: err = %w", err)
 			return

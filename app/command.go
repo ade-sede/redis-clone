@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -131,11 +132,12 @@ func echo(args []*query) ([]byte, error) {
 }
 
 func info(args []*query) ([]byte, error) {
-
 	requestedSections := 0
 	replicationRequested := false
 
 	for _, option := range args {
+		requestedSections += 1
+
 		optionName, err := option.asString()
 		if err != nil {
 			return nil, err
@@ -143,7 +145,6 @@ func info(args []*query) ([]byte, error) {
 
 		if optionName == "replication" {
 			replicationRequested = true
-			requestedSections += 1
 		} else {
 			response := fmt.Sprintf("-ERR unsupported info section: %s\r\n", optionName)
 			return []byte(response), nil
@@ -175,12 +176,78 @@ master_repl_offset:%d`,
 	panic("Unreachable code")
 }
 
-func replconf(args []*query) ([]byte, error) {
-	args = nil
+func replconf(args []*query, callerAddress string) ([]byte, error) {
+	// TODO support multiple replicas on the same host machine ?
+	replicaIndex := slices.IndexFunc(replicationInfo.replicas, func(r replica) bool {
+		fields := strings.Split(r.host, ":")
+		return callerAddress == fields[0]
+	})
+
+	for i, arg := range args {
+		str, err := arg.asString()
+		if err != nil {
+			return nil, err
+		}
+
+		if str == "listening-port" {
+			if len(args) < i+2 {
+				return nil, ErrOutOfBounds
+			}
+
+			port, err := args[i+1].asString()
+			if err != nil {
+				return nil, err
+			}
+
+			if replicaIndex == -1 {
+				newReplica := replica{
+					host:            fmt.Sprintf("%s:%s", callerAddress, port),
+					capabilites:     make([]string, 0),
+					needsFullResync: false,
+				}
+
+				replicationInfo.replicas = append(replicationInfo.replicas, newReplica)
+			} else {
+				replica := replicationInfo.replicas[i]
+				replica.host = fmt.Sprintf("%s:%s", callerAddress, port)
+			}
+		}
+
+		if str == "capa" {
+			if len(args) < i+2 {
+				return nil, ErrOutOfBounds
+			}
+
+			newCapa, err := args[i+1].asString()
+			if err != nil {
+				return nil, err
+			}
+
+			if replicaIndex == -1 {
+				return nil, fmt.Errorf("Can't add a capability, no replica registered for %s", callerAddress)
+			}
+
+			replica := replicationInfo.replicas[replicaIndex]
+			replica.capabilites = append(replica.capabilites, newCapa)
+		}
+	}
+
 	return []byte("+OK\r\n"), nil
 }
 
-func psync(args []*query) ([]byte, error) {
+func psync(args []*query, callerAddress string) ([]byte, error) {
+	replicaIndex := slices.IndexFunc(replicationInfo.replicas, func(r replica) bool {
+		fields := strings.Split(r.host, ":")
+		return callerAddress == fields[0]
+	})
+
+	if replicaIndex == -1 {
+		return nil, fmt.Errorf("No replica registered for %s", callerAddress)
+	}
+
+	replica := replicationInfo.replicas[replicaIndex]
+	replica.needsFullResync = true
+
 	args = nil
 	response := fmt.Sprintf("FULLRESYNC %s %d",
 		replicationInfo.masterReplId,
@@ -189,7 +256,7 @@ func psync(args []*query) ([]byte, error) {
 	return encodeSimpleString(response), nil
 }
 
-func execute(query *query) ([]byte, error) {
+func execute(query *query, callerAddress string) ([]byte, error) {
 	if query.queryType != Array {
 		return nil, fmt.Errorf("Can't execute of query type: %d. Only Arrays are supported at this time (type %d)", query.queryType, Array)
 	}
@@ -225,11 +292,11 @@ func execute(query *query) ([]byte, error) {
 	}
 
 	if strings.EqualFold(command, "REPLCONF") {
-		return replconf(array[1:])
+		return replconf(array[1:], callerAddress)
 	}
 
 	if strings.EqualFold(command, "PSYNC") {
-		return psync(array[1:])
+		return psync(array[1:], callerAddress)
 	}
 
 	errorResponse := fmt.Sprintf("-ERR unknown command '%s'\r\n", command)
