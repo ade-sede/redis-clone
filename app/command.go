@@ -21,34 +21,22 @@ func isExpiryDurationOption(optionName string) string {
 	return ""
 }
 
-func set(conn net.Conn, args []*query) error {
+func set(conn net.Conn, args []string) error {
 	var expiresAt *time.Time = nil
 	var durationMultiplier time.Duration = 0
 	var duration int = 0
+	var err error
 
 	if len(args) < 2 {
 		conn.Write([]byte("-ERR wrong number of arguments\r\n"))
 		return nil
 	}
 
-	key, err := args[0].asString()
-	if err != nil {
-		return err
-	}
-
-	value, err := args[1].asString()
-	if err != nil {
-		return err
-	}
-
+	key := args[0]
+	value := args[1]
 	options := args[2:]
 
 	for i, option := range options {
-		option, err := option.asString()
-		if err != nil {
-			return err
-		}
-
 		expiryDurationOption := isExpiryDurationOption(option)
 
 		if expiryDurationOption != "" {
@@ -56,10 +44,7 @@ func set(conn net.Conn, args []*query) error {
 				return ErrOutOfBounds
 			}
 
-			durationString, err := options[i+1].asString()
-			if err != nil {
-				return err
-			}
+			durationString := options[i+1]
 
 			duration, err = strconv.Atoi(durationString)
 			if err != nil {
@@ -85,16 +70,13 @@ func set(conn net.Conn, args []*query) error {
 	return nil
 }
 
-func get(conn net.Conn, args []*query) error {
+func get(conn net.Conn, args []string) error {
 	if len(args) != 1 {
 		conn.Write([]byte("-ERR wrong number of arguments\r\n"))
 		return nil
 	}
 
-	key, err := args[0].asString()
-	if err != nil {
-		return err
-	}
+	key := args[0]
 
 	entry, ok := data[key]
 	if !ok {
@@ -121,42 +103,28 @@ func ping(conn net.Conn) {
 	conn.Write([]byte("+PONG\r\n"))
 }
 
-func echo(conn net.Conn, args []*query) error {
+func echo(conn net.Conn, args []string) error {
 	if len(args) != 1 {
 		conn.Write([]byte("-ERR wrong number of arguments\r\n"))
 		return nil
 	}
-
-	if args[0].queryType != BulkString {
-		conn.Write([]byte("-ERR invalid argument type\r\n"))
-		return nil
-	}
-
-	bulkString, err := args[0].asString()
-	if err != nil {
-		return err
-	}
-
-	conn.Write(encodeBulkString(bulkString))
+	conn.Write(encodeBulkString(args[0]))
 	return nil
 }
 
-func info(conn net.Conn, args []*query) error {
+func info(conn net.Conn, args []string) error {
 	requestedSections := 0
 	replicationRequested := false
 
-	for _, option := range args {
+	for _, section := range args {
 		requestedSections += 1
 
-		optionName, err := option.asString()
-		if err != nil {
-			return err
-		}
-
-		if optionName == "replication" {
+		if section == "replication" {
+			replicationRequested = true
+		} else if section == "all" {
 			replicationRequested = true
 		} else {
-			response := fmt.Sprintf("-ERR unsupported info section: %s\r\n", optionName)
+			response := fmt.Sprintf("-ERR unsupported info section: %s\r\n", section)
 			conn.Write([]byte(response))
 			return nil
 		}
@@ -188,7 +156,7 @@ master_repl_offset:%d`,
 	panic("Unreachable code")
 }
 
-func replconf(conn net.Conn, args []*query) error {
+func replconf(conn net.Conn, args []string) error {
 	callerIp, err := getCallerIp(conn)
 	if err != nil {
 		return err
@@ -200,42 +168,33 @@ func replconf(conn net.Conn, args []*query) error {
 	}
 
 	for i, arg := range args {
-		str, err := arg.asString()
-		if err != nil {
-			return err
-		}
-
-		if str == "listening-port" {
+		if arg == "listening-port" {
 			if len(args) < i+2 {
 				return ErrOutOfBounds
 			}
 
-			port, err := args[i+1].asString()
-			if err != nil {
-				return err
-			}
+			port := args[i+1]
 
 			if existingReplica == nil {
 				newReplica := replica{
 					host:        fmt.Sprintf("%s:%s", callerIp, port),
 					capabilites: make([]string, 0),
+					conn:        conn,
 				}
 
 				replicationInfo.replicas = append(replicationInfo.replicas, newReplica)
 			} else {
 				existingReplica.host = fmt.Sprintf("%s:%s", callerIp, port)
+				existingReplica.conn = conn
 			}
 		}
 
-		if str == "capa" {
+		if arg == "capa" {
 			if len(args) < i+2 {
 				return ErrOutOfBounds
 			}
 
-			newCapa, err := args[i+1].asString()
-			if err != nil {
-				return err
-			}
+			newCapa := args[i+1]
 
 			if existingReplica == nil {
 				return fmt.Errorf("Can't add a capability, no replica registered for %s", callerIp)
@@ -249,7 +208,7 @@ func replconf(conn net.Conn, args []*query) error {
 	return nil
 }
 
-func psync(conn net.Conn, args []*query) error {
+func psync(conn net.Conn, args []string) error {
 	callerIp, err := getCallerIp(conn)
 	if err != nil {
 		return err
@@ -303,53 +262,56 @@ func getCallerIp(conn net.Conn) (string, error) {
 	return ip.String(), nil
 }
 
-func execute(conn net.Conn, query *query) error {
+func execute(conn net.Conn, query *query) (mustPropagateToReplicas bool, err error) {
 	if query.queryType != Array {
-		return fmt.Errorf("Can't execute of query type: %d. Only Arrays are supported at this time (type %d)", query.queryType, Array)
+		return false, fmt.Errorf("Can't execute of query type: %d. Only Arrays are supported at this time (type %d)", query.queryType, Array)
 	}
 
-	array, err := query.asArray()
+	// Can assume everyhting will be a string for our limited use
+	array, err := query.asStringArray()
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	command, err := array[0].asString()
-	if err != nil {
-		return err
-	}
-
+	command := array[0]
 	args := array[1:]
 
 	if strings.EqualFold(command, "PING") {
 		ping(conn)
-		return nil
+		return false, nil
 	}
 
 	if strings.EqualFold(command, "ECHO") {
-		return echo(conn, args)
+		err = echo(conn, args)
+		return false, err
 	}
 
 	if strings.EqualFold(command, "SET") {
-		return set(conn, args)
+		err = set(conn, args)
+		return true, err
 	}
 
 	if strings.EqualFold(command, "GET") {
-		return get(conn, args)
+		err = get(conn, args)
+		return false, err
 	}
 
 	if strings.EqualFold(command, "INFO") {
-		return info(conn, args)
+		err = info(conn, args)
+		return false, err
 	}
 
 	if strings.EqualFold(command, "REPLCONF") {
-		return replconf(conn, args)
+		err = replconf(conn, args)
+		return false, err
 	}
 
 	if strings.EqualFold(command, "PSYNC") {
-		return psync(conn, args)
+		err = psync(conn, args)
+		return false, err
 	}
 
 	errorResponse := fmt.Sprintf("-ERR unknown command '%s'\r\n", command)
 	conn.Write([]byte(errorResponse))
-	return nil
+	return false, nil
 }

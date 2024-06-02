@@ -25,6 +25,7 @@ const (
 type query struct {
 	queryType queryType
 	value     interface{}
+	raw       []byte
 }
 
 func (q *query) asString() (string, error) {
@@ -69,6 +70,26 @@ func (q *query) asInteger() (int, error) {
 	}
 
 	return i, nil
+}
+
+func (q *query) asStringArray() ([]string, error) {
+	strings := make([]string, 0)
+
+	a, err := q.asArray()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, innerQuery := range a {
+		s, err := innerQuery.asString()
+		if err != nil {
+			return nil, err
+		}
+
+		strings = append(strings, s)
+	}
+
+	return strings, nil
 }
 
 func isDigit(b byte) bool {
@@ -260,6 +281,11 @@ func parseArray(buf []byte, offset *int) (*query, error) {
 }
 
 func parseResp(buf []byte, offset *int) (*query, error) {
+	var err error
+	var q *query
+
+	start := *offset
+
 	if *offset >= len(buf) {
 		return nil, fmt.Errorf("%w, len = %d, offset = %d", ErrOutOfBounds, len(buf), *offset)
 	}
@@ -267,10 +293,17 @@ func parseResp(buf []byte, offset *int) (*query, error) {
 	switch buf[*offset] {
 	case '+':
 		*offset += 1
-		return parseSimpleString(buf, offset)
+		q, err = parseSimpleString(buf, offset)
+		if err != nil {
+
+			return nil, err
+		}
 	case '-':
 		*offset += 1
-		return parseSimpleError(buf, offset)
+		q, err = parseSimpleError(buf, offset)
+		if err != nil {
+			return nil, err
+		}
 	case ':':
 		*offset += 1
 		n, err := atoi(buf, offset)
@@ -278,17 +311,27 @@ func parseResp(buf []byte, offset *int) (*query, error) {
 			return nil, err
 		}
 
-		return &query{
+		q = &query{
 			queryType: Integer,
 			value:     n,
-		}, nil
+		}
 	case '$':
 		*offset += 1
-		return parseBulkString(buf, offset)
+		q, err = parseBulkString(buf, offset)
+		if err != nil {
+			return nil, err
+		}
 	case '*':
 		*offset += 1
-		return parseArray(buf, offset)
+		q, err = parseArray(buf, offset)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("Unknown type")
 	}
+
+	q.raw = buf[start:*offset]
+
+	return q, nil
 }

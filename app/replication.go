@@ -21,6 +21,7 @@ func generateReplId() string {
 type replica struct {
 	host        string
 	capabilites []string
+	conn        net.Conn
 }
 
 type replication struct {

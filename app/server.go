@@ -78,10 +78,21 @@ func handleConnection(conn net.Conn, errorChannel chan error) {
 			return
 		}
 
-		err = execute(conn, query)
+		mustPropagateToReplicas, err := execute(conn, query)
 		if err != nil {
 			errorChannel <- fmt.Errorf("Error executing the command: err = %w", err)
 			return
+		}
+
+		if mustPropagateToReplicas {
+			for _, replica := range replicationInfo.replicas {
+				go func() {
+					_, err := replica.conn.Write(query.raw)
+					if err != nil {
+						errorChannel <- fmt.Errorf("Error propagating to replica: err = %w", err)
+					}
+				}()
+			}
 		}
 
 	}
