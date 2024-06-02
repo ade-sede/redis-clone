@@ -271,32 +271,34 @@ func execute(query *query, callerAddress string) ([]byte, error) {
 		return nil, err
 	}
 
+	args := array[1:]
+
 	if strings.EqualFold(command, "PING") {
 		return ping(), nil
 	}
 
 	if strings.EqualFold(command, "ECHO") {
-		return echo(array[1:])
+		return echo(args)
 	}
 
 	if strings.EqualFold(command, "SET") {
-		return set(array[1:])
+		return set(args)
 	}
 
 	if strings.EqualFold(command, "GET") {
-		return get(array[1:])
+		return get(args)
 	}
 
 	if strings.EqualFold(command, "INFO") {
-		return info(array[1:])
+		return info(args)
 	}
 
 	if strings.EqualFold(command, "REPLCONF") {
-		return replconf(array[1:], callerAddress)
+		return replconf(args, callerAddress)
 	}
 
 	if strings.EqualFold(command, "PSYNC") {
-		return psync(array[1:], callerAddress)
+		return psync(args, callerAddress)
 	}
 
 	errorResponse := fmt.Sprintf("-ERR unknown command '%s'\r\n", command)
