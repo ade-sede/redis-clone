@@ -19,12 +19,11 @@ func generateReplId() string {
 }
 
 type replica struct {
-	host            string
-	capabilites     []string
-	needsFullResync bool
+	host        string
+	capabilites []string
 }
 
-var replicationInfo struct {
+type replication struct {
 	// Are we master ?
 	isMaster bool
 
@@ -48,6 +47,23 @@ var replicationInfo struct {
 
 	replicas []replica
 }
+
+func (r *replication) findReplica(ip string) (*replica, error) {
+	for _, replica := range r.replicas {
+		ipp, _, err := net.SplitHostPort(replica.host)
+		if err != nil {
+			return nil, err
+		}
+
+		if ip == ipp {
+			return &replica, nil
+		}
+	}
+
+	return nil, nil
+}
+
+var replicationInfo replication
 
 // The slave is responsible for initiating the replication.
 // Handshake for replication is done in 3 steps:
@@ -185,15 +201,13 @@ func sendMsg(conn net.Conn, command []string, expect string) (string, error) {
 		return "", err
 	}
 
-	if expect != "" {
-		response, err = query.asString()
-		if err != nil {
-			return "", err
-		}
+	response, err = query.asString()
+	if err != nil {
+		return "", err
+	}
 
-		if response != expect {
-			return "", fmt.Errorf("Expected %s as an answer to PING, got %s", expect, response)
-		}
+	if expect != "" && response != expect {
+		return "", fmt.Errorf("Expected %s as an answer to PING, got %s", expect, response)
 	}
 
 	return response, nil

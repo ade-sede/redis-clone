@@ -1,8 +1,9 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
-	"slices"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -20,23 +21,24 @@ func isExpiryDurationOption(optionName string) string {
 	return ""
 }
 
-func set(args []*query) ([]byte, error) {
+func set(conn net.Conn, args []*query) error {
 	var expiresAt *time.Time = nil
 	var durationMultiplier time.Duration = 0
 	var duration int = 0
 
 	if len(args) < 2 {
-		return []byte("-ERR wrong number of arguments\r\n"), nil
+		conn.Write([]byte("-ERR wrong number of arguments\r\n"))
+		return nil
 	}
 
 	key, err := args[0].asString()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	value, err := args[1].asString()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	options := args[2:]
@@ -44,24 +46,24 @@ func set(args []*query) ([]byte, error) {
 	for i, option := range options {
 		option, err := option.asString()
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		expiryDurationOption := isExpiryDurationOption(option)
 
 		if expiryDurationOption != "" {
 			if len(options) < i+2 {
-				return nil, ErrOutOfBounds
+				return ErrOutOfBounds
 			}
 
 			durationString, err := options[i+1].asString()
 			if err != nil {
-				return nil, err
+				return err
 			}
 
 			duration, err = strconv.Atoi(durationString)
 			if err != nil {
-				return nil, err
+				return err
 			}
 
 			if expiryDurationOption == "PX" {
@@ -79,59 +81,67 @@ func set(args []*query) ([]byte, error) {
 
 	data[key] = entry{value: value, expiresAt: expiresAt}
 
-	return []byte("+OK\r\n"), nil
+	conn.Write([]byte("+OK\r\n"))
+	return nil
 }
 
-func get(args []*query) ([]byte, error) {
+func get(conn net.Conn, args []*query) error {
 	if len(args) != 1 {
-		return []byte("-ERR wrong number of arguments\r\n"), nil
+		conn.Write([]byte("-ERR wrong number of arguments\r\n"))
+		return nil
 	}
 
 	key, err := args[0].asString()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	entry, ok := data[key]
 	if !ok {
-		return []byte("$-1\r\n"), nil
+		conn.Write([]byte("$-1\r\n"))
+		return nil
 	}
 
 	str, ok := entry.value.(string)
 	if !ok {
-		return nil, fmt.Errorf("Invalid value type: %T", entry.value)
+		return fmt.Errorf("Invalid value type: %T", entry.value)
 	}
 
 	if entry.expiresAt != nil && entry.expiresAt.Before(time.Now()) {
 		delete(data, key)
-		return []byte("$-1\r\n"), nil
+		conn.Write([]byte("$-1\r\n"))
+		return nil
 	}
 
-	return encodeBulkString(str), nil
+	conn.Write(encodeBulkString(str))
+	return nil
 }
 
-func ping() []byte {
-	return []byte("+PONG\r\n")
+func ping(conn net.Conn) {
+	conn.Write([]byte("+PONG\r\n"))
 }
 
-func echo(args []*query) ([]byte, error) {
+func echo(conn net.Conn, args []*query) error {
 	if len(args) != 1 {
-		return []byte("-ERR wrong number of arguments\r\n"), nil
+		conn.Write([]byte("-ERR wrong number of arguments\r\n"))
+		return nil
 	}
 
 	if args[0].queryType != BulkString {
-		return []byte("-ERR invalid argument type\r\n"), nil
+		conn.Write([]byte("-ERR invalid argument type\r\n"))
+		return nil
 	}
 
 	bulkString, err := args[0].asString()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return encodeBulkString(bulkString), nil
+	conn.Write(encodeBulkString(bulkString))
+	return nil
 }
 
-func info(args []*query) ([]byte, error) {
+func info(conn net.Conn, args []*query) error {
 	requestedSections := 0
 	replicationRequested := false
 
@@ -140,14 +150,15 @@ func info(args []*query) ([]byte, error) {
 
 		optionName, err := option.asString()
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		if optionName == "replication" {
 			replicationRequested = true
 		} else {
 			response := fmt.Sprintf("-ERR unsupported info section: %s\r\n", optionName)
-			return []byte(response), nil
+			conn.Write([]byte(response))
+			return nil
 		}
 	}
 
@@ -170,137 +181,175 @@ master_repl_offset:%d`,
 			replicationInfo.masterReplId,
 			replicationInfo.masterReplOffset)
 
-		return encodeBulkString(response), nil
+		conn.Write(encodeBulkString(response))
+		return nil
 	}
 
 	panic("Unreachable code")
 }
 
-func replconf(args []*query, callerAddress string) ([]byte, error) {
-	// TODO support multiple replicas on the same host machine ?
-	replicaIndex := slices.IndexFunc(replicationInfo.replicas, func(r replica) bool {
-		fields := strings.Split(r.host, ":")
-		return callerAddress == fields[0]
-	})
+func replconf(conn net.Conn, args []*query) error {
+	callerIp, err := getCallerIp(conn)
+	if err != nil {
+		return err
+	}
+
+	existingReplica, err := replicationInfo.findReplica(callerIp)
+	if err != nil {
+		return err
+	}
 
 	for i, arg := range args {
 		str, err := arg.asString()
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		if str == "listening-port" {
 			if len(args) < i+2 {
-				return nil, ErrOutOfBounds
+				return ErrOutOfBounds
 			}
 
 			port, err := args[i+1].asString()
 			if err != nil {
-				return nil, err
+				return err
 			}
 
-			if replicaIndex == -1 {
+			if existingReplica == nil {
 				newReplica := replica{
-					host:            fmt.Sprintf("%s:%s", callerAddress, port),
-					capabilites:     make([]string, 0),
-					needsFullResync: false,
+					host:        fmt.Sprintf("%s:%s", callerIp, port),
+					capabilites: make([]string, 0),
 				}
 
 				replicationInfo.replicas = append(replicationInfo.replicas, newReplica)
 			} else {
-				replica := replicationInfo.replicas[i]
-				replica.host = fmt.Sprintf("%s:%s", callerAddress, port)
+				existingReplica.host = fmt.Sprintf("%s:%s", callerIp, port)
 			}
 		}
 
 		if str == "capa" {
 			if len(args) < i+2 {
-				return nil, ErrOutOfBounds
+				return ErrOutOfBounds
 			}
 
 			newCapa, err := args[i+1].asString()
 			if err != nil {
-				return nil, err
+				return err
 			}
 
-			if replicaIndex == -1 {
-				return nil, fmt.Errorf("Can't add a capability, no replica registered for %s", callerAddress)
+			if existingReplica == nil {
+				return fmt.Errorf("Can't add a capability, no replica registered for %s", callerIp)
 			}
 
-			replica := replicationInfo.replicas[replicaIndex]
-			replica.capabilites = append(replica.capabilites, newCapa)
+			existingReplica.capabilites = append(existingReplica.capabilites, newCapa)
 		}
 	}
 
-	return []byte("+OK\r\n"), nil
+	conn.Write([]byte("+OK\r\n"))
+	return nil
 }
 
-func psync(args []*query, callerAddress string) ([]byte, error) {
-	replicaIndex := slices.IndexFunc(replicationInfo.replicas, func(r replica) bool {
-		fields := strings.Split(r.host, ":")
-		return callerAddress == fields[0]
-	})
-
-	if replicaIndex == -1 {
-		return nil, fmt.Errorf("No replica registered for %s", callerAddress)
+func psync(conn net.Conn, args []*query) error {
+	callerIp, err := getCallerIp(conn)
+	if err != nil {
+		return err
 	}
 
-	replica := replicationInfo.replicas[replicaIndex]
-	replica.needsFullResync = true
+	existingReplica, err := replicationInfo.findReplica(callerIp)
+	if err != nil {
+		return err
+	}
+
+	if existingReplica == nil {
+		return fmt.Errorf("No replica registered for %s", callerIp)
+	}
 
 	args = nil
 	response := fmt.Sprintf("FULLRESYNC %s %d",
 		replicationInfo.masterReplId,
 		replicationInfo.masterReplOffset)
 
-	return encodeSimpleString(response), nil
+	conn.Write(encodeBulkString(response))
+
+	emptyRDB, err := hex.DecodeString("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2")
+	if err != nil {
+		return err
+	}
+
+	_, err = conn.Write(append([]byte(fmt.Sprintf("$%d\r\n", len(emptyRDB))), emptyRDB...))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func execute(query *query, callerAddress string) ([]byte, error) {
+func getCallerIp(conn net.Conn) (string, error) {
+	addr := conn.RemoteAddr()
+	host, _, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return "", err
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return "", fmt.Errorf("Error parsing IP address %s", host)
+	}
+
+	if ip.IsLoopback() {
+		return "localhost", nil
+	}
+
+	return ip.String(), nil
+}
+
+func execute(conn net.Conn, query *query) error {
 	if query.queryType != Array {
-		return nil, fmt.Errorf("Can't execute of query type: %d. Only Arrays are supported at this time (type %d)", query.queryType, Array)
+		return fmt.Errorf("Can't execute of query type: %d. Only Arrays are supported at this time (type %d)", query.queryType, Array)
 	}
 
 	array, err := query.asArray()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	command, err := array[0].asString()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	args := array[1:]
 
 	if strings.EqualFold(command, "PING") {
-		return ping(), nil
+		ping(conn)
+		return nil
 	}
 
 	if strings.EqualFold(command, "ECHO") {
-		return echo(args)
+		return echo(conn, args)
 	}
 
 	if strings.EqualFold(command, "SET") {
-		return set(args)
+		return set(conn, args)
 	}
 
 	if strings.EqualFold(command, "GET") {
-		return get(args)
+		return get(conn, args)
 	}
 
 	if strings.EqualFold(command, "INFO") {
-		return info(args)
+		return info(conn, args)
 	}
 
 	if strings.EqualFold(command, "REPLCONF") {
-		return replconf(args, callerAddress)
+		return replconf(conn, args)
 	}
 
 	if strings.EqualFold(command, "PSYNC") {
-		return psync(args, callerAddress)
+		return psync(conn, args)
 	}
 
 	errorResponse := fmt.Sprintf("-ERR unknown command '%s'\r\n", command)
-	return []byte(errorResponse), nil
+	conn.Write([]byte(errorResponse))
+	return nil
 }
