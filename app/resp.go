@@ -12,6 +12,7 @@ var (
 	ErrRespWrongNumberOfArguments = fmt.Errorf("%w wrong number of arguments\r\n", ErrRespSimpleError)
 	ErrOutOfBounds                = fmt.Errorf("Requested index is out of bounds")
 	ErrMissingCRLF                = fmt.Errorf("Missing CRLF")
+	ErrPossibleRDBFile            = fmt.Errorf("Possible RDB file")
 )
 
 type queryType int
@@ -215,6 +216,15 @@ func parseBulkString(buf []byte, offset *int) (*query, error) {
 
 	err = parseSuffix(buf, offset)
 	if err != nil {
+		// RDB Files look just like bulk string
+		// The only way to distinguish between the two are:
+		// - RDB files don't have a CRLF suffix
+		// - RDB files are only expected after a PSYNC command
+		// I dont feel like tracking state that accurately so for the
+		// moment I plan on ignoring errors matching this specific case
+		if err == ErrMissingCRLF {
+			return nil, ErrPossibleRDBFile
+		}
 		return nil, err
 	}
 

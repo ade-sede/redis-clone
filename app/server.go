@@ -86,37 +86,39 @@ func handleConnection(conn net.Conn, isReplicationChannel bool, errorChannel cha
 
 		for {
 			query, err := parseResp(buf, &offset)
-			if err != nil {
+			if err != nil && err != ErrPossibleRDBFile {
 				errorChannel <- fmt.Errorf("Error parsing query. buf = %s, offset = %d, err = %w", string(buf), offset, err)
 				return
 			}
 
-			response, mustPropagateToReplicas, err := execute(conn, query)
-			if err != nil {
-				if errors.Is(err, ErrRespSimpleError) {
-					conn.Write([]byte(err.Error()))
-				}
-
-				errorChannel <- fmt.Errorf("Error executing the command: err = %w", err)
-				return
-			}
-
-			if response != nil && !isReplicationChannel {
-				_, err = conn.Write(response)
+			if query != nil {
+				response, mustPropagateToReplicas, err := execute(conn, query)
 				if err != nil {
-					errorChannel <- fmt.Errorf("Error writing to TCP connection: err = %w", err)
+					if errors.Is(err, ErrRespSimpleError) {
+						conn.Write([]byte(err.Error()))
+					}
+
+					errorChannel <- fmt.Errorf("Error executing the command: err = %w", err)
 					return
 				}
-			}
 
-			if mustPropagateToReplicas {
-				for _, replica := range replicationInfo.replicas {
-					go func() {
-						_, err := replica.conn.Write(query.raw)
-						if err != nil {
-							errorChannel <- fmt.Errorf("Error propagating to replica: err = %w", err)
-						}
-					}()
+				if response != nil && !isReplicationChannel {
+					_, err = conn.Write(response)
+					if err != nil {
+						errorChannel <- fmt.Errorf("Error writing to TCP connection: err = %w", err)
+						return
+					}
+				}
+
+				if mustPropagateToReplicas {
+					for _, replica := range replicationInfo.replicas {
+						go func() {
+							_, err := replica.conn.Write(query.raw)
+							if err != nil {
+								errorChannel <- fmt.Errorf("Error propagating to replica: err = %w", err)
+							}
+						}()
+					}
 				}
 			}
 
