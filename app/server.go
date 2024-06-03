@@ -79,7 +79,7 @@ func handleConnection(conn net.Conn, errorChannel chan error) {
 			return
 		}
 
-		mustPropagateToReplicas, err := execute(conn, query)
+		response, mustPropagateToReplicas, err := execute(conn, query)
 		if err != nil {
 			if errors.Is(err, ErrRespSimpleError) {
 				conn.Write([]byte(err.Error()))
@@ -87,6 +87,14 @@ func handleConnection(conn net.Conn, errorChannel chan error) {
 
 			errorChannel <- fmt.Errorf("Error executing the command: err = %w", err)
 			return
+		}
+
+		if response != nil {
+			_, err = conn.Write(response)
+			if err != nil {
+				errorChannel <- fmt.Errorf("Error writing to TCP connection: err = %w", err)
+				return
+			}
 		}
 
 		if mustPropagateToReplicas {
