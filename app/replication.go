@@ -45,7 +45,7 @@ type replication struct {
 	replicaMasterPort    int
 	replicaMasterHost    string
 
-	masterConnection *net.Conn
+	masterConnection net.Conn
 
 	replicas []replica
 }
@@ -75,7 +75,7 @@ var replicationInfo replication
 // The simplest pattern to implement is FULLRESYNC.
 // As an aswer to `PSYNC` master answers with `FULLRESYNC` and proceeds to send
 // the whole RDB file to the slave.
-func initReplication(listeningPort int) (*net.Conn, error) {
+func initReplication(listeningPort int) (net.Conn, error) {
 	if replicationInfo.replicaof == "" {
 		replicationInfo.masterReplId = generateReplId()
 		replicationInfo.masterReplOffset = 0
@@ -108,14 +108,14 @@ func initReplication(listeningPort int) (*net.Conn, error) {
 		return nil, err
 	}
 
-	replicationInfo.masterConnection = &conn
+	replicationInfo.masterConnection = conn
 
 	err = handshake(conn, listeningPort)
 	if err != nil {
 		return nil, err
 	}
 
-	return &conn, nil
+	return conn, nil
 }
 
 func handshake(conn net.Conn, listeningPort int) error {

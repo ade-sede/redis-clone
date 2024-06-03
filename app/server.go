@@ -26,7 +26,7 @@ func main() {
 	flag.StringVar(&replicationInfo.replicaof, "replicaof", "", "address and port of redis instance to follow")
 	flag.Parse()
 
-	_, err := initReplication(*port)
+	replicationConnection, err := initReplication(*port)
 	if err != nil {
 		errorLogger.Fatalln(err)
 	}
@@ -45,6 +45,10 @@ func main() {
 		}
 	}()
 
+	if replicationConnection != nil {
+		go handleConnection(replicationConnection, true, errorChannel)
+	}
+
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -52,12 +56,12 @@ func main() {
 			continue
 		}
 
-		go handleConnection(conn, errorChannel)
+		go handleConnection(conn, false, errorChannel)
 	}
 
 }
 
-func handleConnection(conn net.Conn, errorChannel chan error) {
+func handleConnection(conn net.Conn, isReplicationChannel bool, errorChannel chan error) {
 	fmt.Println("New TCP connection from: ", conn.RemoteAddr().String())
 	for {
 		buf := make([]byte, 1024)
@@ -89,7 +93,7 @@ func handleConnection(conn net.Conn, errorChannel chan error) {
 			return
 		}
 
-		if response != nil {
+		if response != nil && !isReplicationChannel {
 			_, err = conn.Write(response)
 			if err != nil {
 				errorChannel <- fmt.Errorf("Error writing to TCP connection: err = %w", err)
