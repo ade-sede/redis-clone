@@ -19,9 +19,10 @@ func generateReplId() string {
 }
 
 type replica struct {
-	host        string
 	capabilites []string
-	conn        net.Conn
+	// port the replica is listening on
+	port int
+	conn net.Conn
 }
 
 type replication struct {
@@ -49,14 +50,11 @@ type replication struct {
 	replicas []replica
 }
 
-func (r *replication) findReplica(ip string) (*replica, error) {
-	for _, replica := range r.replicas {
-		ipp, _, err := net.SplitHostPort(replica.host)
-		if err != nil {
-			return nil, err
-		}
+func (r *replication) findReplica(conn net.Conn) (*replica, error) {
+	remoteAddr := conn.RemoteAddr().String()
 
-		if ip == ipp {
+	for _, replica := range r.replicas {
+		if remoteAddr == replica.conn.RemoteAddr().String() {
 			return &replica, nil
 		}
 	}
@@ -71,6 +69,7 @@ var replicationInfo replication
 // 1. slave sends `PING` to master.
 // 2. slave sends `REPLCONF` to master twice, in order to configure basic parameters of the replication such as which port the slave can be reached on.
 // 3. slave sends `PSYNC` to initiate the replication.
+// It is important that all of these steps are done over the same connection
 //
 // Once the handshake is over, slave and master are ready to start syncing,
 // The simplest pattern to implement is FULLRESYNC.

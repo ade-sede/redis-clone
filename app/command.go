@@ -157,12 +157,7 @@ master_repl_offset:%d`,
 }
 
 func replconf(conn net.Conn, args []string) error {
-	callerIp, err := getCallerIp(conn)
-	if err != nil {
-		return err
-	}
-
-	existingReplica, err := replicationInfo.findReplica(callerIp)
+	existingReplica, err := replicationInfo.findReplica(conn)
 	if err != nil {
 		return err
 	}
@@ -173,19 +168,23 @@ func replconf(conn net.Conn, args []string) error {
 				return ErrOutOfBounds
 			}
 
-			port := args[i+1]
+			port, err := strconv.Atoi(args[i+1])
+			if err != nil {
+				return err
+			}
 
+			// TODO remove from list on EOF on conn
 			if existingReplica == nil {
 				newReplica := replica{
-					host:        fmt.Sprintf("%s:%s", callerIp, port),
 					capabilites: make([]string, 0),
 					conn:        conn,
+					port:        port,
 				}
 
 				replicationInfo.replicas = append(replicationInfo.replicas, newReplica)
 			} else {
-				existingReplica.host = fmt.Sprintf("%s:%s", callerIp, port)
 				existingReplica.conn = conn
+				existingReplica.port = port
 			}
 		}
 
@@ -197,7 +196,7 @@ func replconf(conn net.Conn, args []string) error {
 			newCapa := args[i+1]
 
 			if existingReplica == nil {
-				return fmt.Errorf("Can't add a capability, no replica registered for %s", callerIp)
+				return fmt.Errorf("Can't add a capability, no replica registered for %s", conn.RemoteAddr().String())
 			}
 
 			existingReplica.capabilites = append(existingReplica.capabilites, newCapa)
@@ -209,18 +208,13 @@ func replconf(conn net.Conn, args []string) error {
 }
 
 func psync(conn net.Conn, args []string) error {
-	callerIp, err := getCallerIp(conn)
-	if err != nil {
-		return err
-	}
-
-	existingReplica, err := replicationInfo.findReplica(callerIp)
+	existingReplica, err := replicationInfo.findReplica(conn)
 	if err != nil {
 		return err
 	}
 
 	if existingReplica == nil {
-		return fmt.Errorf("No replica registered for %s", callerIp)
+		return fmt.Errorf("No replica registered for %s", conn.RemoteAddr().String())
 	}
 
 	args = nil
