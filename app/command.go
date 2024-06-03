@@ -28,8 +28,7 @@ func set(conn net.Conn, args []string) error {
 	var err error
 
 	if len(args) < 2 {
-		conn.Write([]byte("-ERR wrong number of arguments\r\n"))
-		return nil
+		return ErrRespWrongNumberOfArguments
 	}
 
 	key := args[0]
@@ -72,8 +71,7 @@ func set(conn net.Conn, args []string) error {
 
 func get(conn net.Conn, args []string) error {
 	if len(args) != 1 {
-		conn.Write([]byte("-ERR wrong number of arguments\r\n"))
-		return nil
+		return ErrRespWrongNumberOfArguments
 	}
 
 	key := args[0]
@@ -105,8 +103,7 @@ func ping(conn net.Conn) {
 
 func echo(conn net.Conn, args []string) error {
 	if len(args) != 1 {
-		conn.Write([]byte("-ERR wrong number of arguments\r\n"))
-		return nil
+		return ErrRespWrongNumberOfArguments
 	}
 	conn.Write(encodeBulkString(args[0]))
 	return nil
@@ -124,9 +121,7 @@ func info(conn net.Conn, args []string) error {
 		} else if section == "all" {
 			replicationRequested = true
 		} else {
-			response := fmt.Sprintf("-ERR unsupported info section: %s\r\n", section)
-			conn.Write([]byte(response))
-			return nil
+			return fmt.Errorf("%w unsupported info section: %s", ErrRespSimpleError, section)
 		}
 	}
 
@@ -305,7 +300,5 @@ func execute(conn net.Conn, query *query) (mustPropagateToReplicas bool, err err
 		return false, err
 	}
 
-	errorResponse := fmt.Sprintf("-ERR unknown command '%s'\r\n", command)
-	conn.Write([]byte(errorResponse))
-	return false, nil
+	return false, fmt.Errorf("%w unknown command '%s'", ErrRespSimpleError, command)
 }

@@ -8,8 +8,10 @@ import (
 )
 
 var (
-	ErrOutOfBounds = fmt.Errorf("Requested index is out of bounds")
-	ErrMissingCRLF = fmt.Errorf("Missing CRLF")
+	ErrRespSimpleError            = fmt.Errorf("-ERR")
+	ErrRespWrongNumberOfArguments = fmt.Errorf("%w wrong number of arguments\r\n", ErrRespSimpleError)
+	ErrOutOfBounds                = fmt.Errorf("Requested index is out of bounds")
+	ErrMissingCRLF                = fmt.Errorf("Missing CRLF")
 )
 
 type queryType int

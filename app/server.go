@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -80,6 +81,10 @@ func handleConnection(conn net.Conn, errorChannel chan error) {
 
 		mustPropagateToReplicas, err := execute(conn, query)
 		if err != nil {
+			if errors.Is(err, ErrRespSimpleError) {
+				conn.Write([]byte(err.Error()))
+			}
+
 			errorChannel <- fmt.Errorf("Error executing the command: err = %w", err)
 			return
 		}
