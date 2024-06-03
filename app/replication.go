@@ -146,6 +146,8 @@ func handshake(conn net.Conn, listeningPort int) error {
 		return err
 	}
 
+	// Note there are two responses to PSYNC, one for confirmation of the handshake and if the master responds with `FULLRESYNC` it then sends the whole data as an RDB file
+	// We currently do not retrieve that file
 	response, err := sendMsg(conn, []string{
 		"PSYNC",
 		replicationInfo.masterReplId,
