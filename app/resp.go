@@ -330,7 +330,7 @@ func parseResp(buf []byte, offset *int) (*query, error) {
 			return nil, err
 		}
 	default:
-		return nil, fmt.Errorf("Unknown type")
+		return nil, fmt.Errorf("Unexpected character `%c` at offset %d", buf[*offset], *offset)
 	}
 
 	q.raw = buf[start:*offset]

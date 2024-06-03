@@ -206,18 +206,22 @@ func psync(conn net.Conn, args []string) ([]byte, error) {
 	}
 
 	args = nil
-	fullResync := fmt.Sprintf("FULLRESYNC %s %d",
+	fullResync := encodeBulkString(fmt.Sprintf("FULLRESYNC %s %d",
 		replicationInfo.masterReplId,
-		replicationInfo.masterReplOffset)
+		replicationInfo.masterReplOffset))
 
 	emptyRDB, err := hex.DecodeString("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2")
 	if err != nil {
 		return nil, err
 	}
 
-	response := make([]byte, len(fullResync)+len(emptyRDB)+3+4)
-	response = append(response, encodeBulkString(fullResync)...)
-	response = append(response, []byte(fmt.Sprintf("$%d\r\n%v", len(emptyRDB), emptyRDB))...)
+	RDB := []byte(fmt.Sprintf("$%d\r\n%s", len(emptyRDB), string(emptyRDB)))
+
+	response := make([]byte, 0, len(fullResync)+len(emptyRDB)+3+4)
+	response = append(response, fullResync...)
+	response = append(response, RDB...)
+
+	fmt.Printf("%s\n", string(response))
 
 	return response, nil
 }
