@@ -120,7 +120,7 @@ func handleConnection(conn net.Conn, isReplicationChannel bool, errorChannel cha
 			return
 		}
 
-		fmt.Printf("Parsed into %d queries", len(queries))
+		fmt.Printf("Parsed into %d queries\n", len(queries))
 
 		for _, query := range queries {
 			response, command, err := execute(conn, query)

@@ -279,6 +279,8 @@ func execute(conn net.Conn, query *query) ([]byte, command, error) {
 		return nil, UNKNOWN, err
 	}
 
+	fmt.Println("Executing command: ", array)
+
 	command := array[0]
 	args := array[1:]
 
