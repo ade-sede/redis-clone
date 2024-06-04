@@ -21,6 +21,7 @@ const (
 	PSYNC
 	REPLCONF
 	REPLCONF_GETACK
+	WAIT
 )
 
 const EMPTY_RDB_FILE = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
@@ -268,6 +269,11 @@ func psync(conn net.Conn, args []string) ([]byte, error) {
 	return response, nil
 }
 
+func wait(args []string) ([]byte, error) {
+	args = nil
+	return encodeInteger(0), nil
+}
+
 func execute(conn net.Conn, query *query) ([]byte, command, error) {
 	if query.queryType != Array {
 		return nil, UNKNOWN, fmt.Errorf("Can't execute of query type: %d. Only Arrays are supported at this time (type %d)", query.queryType, Array)
@@ -317,6 +323,11 @@ func execute(conn net.Conn, query *query) ([]byte, command, error) {
 	if strings.EqualFold(command, "PSYNC") {
 		response, err := psync(conn, args)
 		return response, PSYNC, err
+	}
+
+	if strings.EqualFold(command, "WAIT") {
+		response, err := wait(args)
+		return response, WAIT, err
 	}
 
 	return nil, UNKNOWN, fmt.Errorf("%w unknown command '%s'", ErrRespSimpleError, command)

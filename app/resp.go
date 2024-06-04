@@ -260,6 +260,10 @@ func encodeSimpleString(str string) []byte {
 	return []byte(fmt.Sprintf("+%s\r\n", str))
 }
 
+func encodeInteger(i int) []byte {
+	return []byte(fmt.Sprintf(":%d\r\n", i))
+}
+
 func parseArray(buf []byte, offset *int) (*query, error) {
 	length, err := atoi(buf, offset)
 	if err != nil {
