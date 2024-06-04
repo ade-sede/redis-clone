@@ -198,7 +198,7 @@ func sendMsg(conn net.Conn, command []string, expect string) (string, error) {
 		return "", err
 	}
 
-	query, err := parseResp(buf, &offset)
+	query, _, err := parseResp(buf, &offset)
 	if err != nil {
 		return "", err
 	}

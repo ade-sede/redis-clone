@@ -278,7 +278,7 @@ func parseArray(buf []byte, offset *int) (*query, error) {
 	arr := make([]*query, 0, length)
 
 	for i := 0; i < length; i++ {
-		elem, err := parseResp(buf, offset)
+		elem, _, err := parseResp(buf, offset)
 		if err != nil {
 			return nil, err
 		}
@@ -292,14 +292,14 @@ func parseArray(buf []byte, offset *int) (*query, error) {
 	}, nil
 }
 
-func parseResp(buf []byte, offset *int) (*query, error) {
+func parseResp(buf []byte, offset *int) (*query, bool, error) {
 	var err error
 	var q *query
 
 	start := *offset
 
 	if *offset >= len(buf) {
-		return nil, fmt.Errorf("%w, len = %d, offset = %d", ErrOutOfBounds, len(buf), *offset)
+		return nil, true, fmt.Errorf("%w, len = %d, offset = %d", ErrOutOfBounds, len(buf), *offset)
 	}
 
 	switch buf[*offset] {
@@ -308,19 +308,19 @@ func parseResp(buf []byte, offset *int) (*query, error) {
 		q, err = parseSimpleString(buf, offset)
 		if err != nil {
 
-			return nil, err
+			return nil, true, err
 		}
 	case '-':
 		*offset += 1
 		q, err = parseSimpleError(buf, offset)
 		if err != nil {
-			return nil, err
+			return nil, true, err
 		}
 	case ':':
 		*offset += 1
 		n, err := atoi(buf, offset)
 		if err != nil {
-			return nil, err
+			return nil, true, err
 		}
 
 		q = &query{
@@ -331,19 +331,24 @@ func parseResp(buf []byte, offset *int) (*query, error) {
 		*offset += 1
 		q, err = parseBulkString(buf, offset)
 		if err != nil {
-			return nil, err
+			return nil, true, err
 		}
 	case '*':
 		*offset += 1
 		q, err = parseArray(buf, offset)
 		if err != nil {
-			return nil, err
+			return nil, true, err
 		}
 	default:
-		return nil, fmt.Errorf("Unexpected character `%c` at offset %d", buf[*offset], *offset)
+		return nil, true, fmt.Errorf("Unexpected character `%c` at offset %d", buf[*offset], *offset)
 	}
 
 	q.raw = buf[start:*offset]
 
-	return q, nil
+	// Have we read everything there is to read ?
+	if *offset >= len(buf) || buf[*offset] == 0 {
+		return q, true, nil
+	}
+
+	return q, false, nil
 }

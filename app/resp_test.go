@@ -96,7 +96,7 @@ func TestParseSimpleString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			offset := 0
-			got, parseError := parseResp([]byte(tt.input), &offset)
+			got, _, parseError := parseResp([]byte(tt.input), &offset)
 
 			if (parseError != nil) != tt.wantErr {
 				t.Errorf("parseSimpleString() error = %v, wantErr %v", parseError, tt.wantErr)
@@ -128,7 +128,7 @@ func TestParseSimpleError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			offset := 0
-			got, parseError := parseResp([]byte(tt.input), &offset)
+			got, _, parseError := parseResp([]byte(tt.input), &offset)
 
 			if (parseError != nil) != tt.wantErr {
 				t.Errorf("parseSimpleError() error = %v, wantErr %v", parseError, tt.wantErr)
@@ -166,7 +166,7 @@ func TestParseInteger(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			offset := 0
-			got, parseError := parseResp([]byte(tt.input), &offset)
+			got, _, parseError := parseResp([]byte(tt.input), &offset)
 
 			if (parseError != nil) != tt.wantErr {
 				t.Errorf("parseInteger() error = %v, wantErr %v", parseError, tt.wantErr)
@@ -200,7 +200,7 @@ func TestParseBulkString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			offset := 0
-			got, parseError := parseResp([]byte(tt.input), &offset)
+			got, _, parseError := parseResp([]byte(tt.input), &offset)
 
 			if (parseError != nil) != tt.wantErr {
 				t.Errorf("parseBulkString() error = %v, wantErr %v", parseError, tt.wantErr)
@@ -237,7 +237,7 @@ func TestParseArray(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			offset := 0
-			got, parseError := parseResp([]byte(tt.input), &offset)
+			got, _, parseError := parseResp([]byte(tt.input), &offset)
 
 			if (parseError != nil) != tt.wantErr {
 				t.Errorf("parseArray() error = %v, wantErr %v", parseError, tt.wantErr)
@@ -270,7 +270,7 @@ func TestParseNestedArray(t *testing.T) {
 	}
 
 	offset := 0
-	got, parseError := parseResp([]byte(input), &offset)
+	got, _, parseError := parseResp([]byte(input), &offset)
 
 	if parseError != nil {
 		t.Errorf("parseNestedArray() error = %v", parseError)
@@ -322,5 +322,31 @@ func helperArrayEquality(t *testing.T, arr []*query, expected []interface{}) {
 		} else {
 			t.Errorf("helperArrayEquality() unexpected query type: %v", v.queryType)
 		}
+	}
+}
+
+func TestSegmentWithSeveralCommands(t *testing.T) {
+	input := "$3\r\nSET\r\n$3\r\nkey\r\n"
+
+	offset := 0
+	_, doneReading, parseError := parseResp([]byte(input), &offset)
+
+	if parseError != nil {
+		t.Errorf("segmentWithSeveralCommands() error = %v", parseError)
+		return
+	}
+
+	if doneReading {
+		t.Errorf("segmentWithSeveralCommands() doneReading = %v, want %v", doneReading, false)
+	}
+
+	_, doneReading, parseError = parseResp([]byte(input), &offset)
+	if parseError != nil {
+		t.Errorf("segmentWithSeveralCommands() error = %v", parseError)
+		return
+	}
+
+	if !doneReading {
+		t.Errorf("segmentWithSeveralCommands() doneReading = %v, want %v", doneReading, true)
 	}
 }

@@ -73,16 +73,31 @@ func mustPropagateToReplicas(command command, isReplicationChannel bool) bool {
 	return false
 }
 
+func parse(buf []byte) ([]*query, error) {
+	queries := make([]*query, 0)
+	offset := 0
+
+	for {
+		query, doneReading, err := parseResp(buf, &offset)
+		if err != nil && err != ErrPossibleRDBFile {
+			return nil, fmt.Errorf("Error parsing query. buf = %s, offset = %d, err = %w", string(buf), offset, err)
+		}
+
+		if query != nil {
+			queries = append(queries, query)
+		}
+
+		if doneReading {
+			break
+		}
+	}
+
+	return queries, nil
+}
+
 func handleConnection(conn net.Conn, isReplicationChannel bool, errorChannel chan error) {
 	fmt.Println("New TCP connection from: ", conn.RemoteAddr().String())
 	for {
-		// Note:
-		// One TCP segment may contain several queries. We need to
-		// parse and execute them one by one, which is why we have so
-		// many nested loops.
-
-		// Another possibility is that one command could be so big it
-		// does not hold within one segment. Currently unsupported
 		buf := make([]byte, 4096)
 		_, err := conn.Read(buf)
 		if err != nil {
@@ -94,52 +109,42 @@ func handleConnection(conn net.Conn, isReplicationChannel bool, errorChannel cha
 		}
 
 		fmt.Println("Received: ", string(buf))
-		offset := 0
 
-		for {
-			query, err := parseResp(buf, &offset)
-			if err != nil && err != ErrPossibleRDBFile {
-				errorChannel <- fmt.Errorf("Error parsing query. buf = %s, offset = %d, err = %w", string(buf), offset, err)
+		queries, err := parse(buf)
+		if err != nil {
+			errorChannel <- fmt.Errorf("Error parsing queries: err = %w", err)
+			return
+		}
+
+		for _, query := range queries {
+			response, command, err := execute(conn, query)
+			if err != nil {
+				if errors.Is(err, ErrRespSimpleError) {
+					conn.Write([]byte(err.Error()))
+				}
+
+				errorChannel <- fmt.Errorf("Error executing the command: err = %w", err)
 				return
 			}
 
-			if query != nil {
-				response, command, err := execute(conn, query)
+			if response != nil && !isReplicationChannel {
+				_, err = conn.Write(response)
 				if err != nil {
-					if errors.Is(err, ErrRespSimpleError) {
-						conn.Write([]byte(err.Error()))
-					}
-
-					errorChannel <- fmt.Errorf("Error executing the command: err = %w", err)
+					errorChannel <- fmt.Errorf("Error writing to TCP connection: err = %w", err)
 					return
 				}
-
-				if response != nil && !isReplicationChannel {
-					_, err = conn.Write(response)
-					if err != nil {
-						errorChannel <- fmt.Errorf("Error writing to TCP connection: err = %w", err)
-						return
-					}
-				}
-
-				if mustPropagateToReplicas(command, isReplicationChannel) {
-					for _, replica := range replicationInfo.replicas {
-						go func() {
-							_, err := replica.conn.Write(query.raw)
-							if err != nil {
-								errorChannel <- fmt.Errorf("Error propagating to replica: err = %w", err)
-							}
-						}()
-					}
-				}
 			}
 
-			// If we are done reading all commands inside the 4096 byte
-			// segment, we can go back to listening for messages
-			if offset >= len(buf) || buf[offset] == 0 {
-				break
+			if mustPropagateToReplicas(command, isReplicationChannel) {
+				for _, replica := range replicationInfo.replicas {
+					go func() {
+						_, err := replica.conn.Write(query.raw)
+						if err != nil {
+							errorChannel <- fmt.Errorf("Error propagating to replica: err = %w", err)
+						}
+					}()
+				}
 			}
 		}
-
 	}
 }
