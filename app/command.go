@@ -18,8 +18,9 @@ const (
 	PING
 	ECHO
 	INFO
-	REPLCONF
 	PSYNC
+	REPLCONF
+	REPLCONF_GETACK
 )
 
 var expiryDurationOptionNames = []string{"EX", "PX"}
@@ -158,21 +159,25 @@ master_repl_offset:%d`,
 	panic("Unreachable code")
 }
 
-func replconf(conn net.Conn, args []string) ([]byte, error) {
+// the GETACK subcommand involves special behavior, which is why we must lift
+// it to the top level
+func replconf(conn net.Conn, args []string) ([]byte, command, error) {
+	var isGetAck bool = false
+
 	existingReplica, err := replicationInfo.findReplica(conn)
 	if err != nil {
-		return nil, err
+		return nil, REPLCONF, err
 	}
 
 	for i, arg := range args {
 		if arg == "listening-port" {
 			if len(args) < i+2 {
-				return nil, ErrOutOfBounds
+				return nil, REPLCONF, ErrOutOfBounds
 			}
 
 			port, err := strconv.Atoi(args[i+1])
 			if err != nil {
-				return nil, err
+				return nil, REPLCONF, err
 			}
 
 			// TODO remove from list on EOF on conn
@@ -192,20 +197,42 @@ func replconf(conn net.Conn, args []string) ([]byte, error) {
 
 		if arg == "capa" {
 			if len(args) < i+2 {
-				return nil, ErrOutOfBounds
+				return nil, REPLCONF, ErrOutOfBounds
 			}
 
 			newCapa := args[i+1]
 
 			if existingReplica == nil {
-				return nil, fmt.Errorf("Can't add a capability, no replica registered for %s", conn.RemoteAddr().String())
+				return nil, REPLCONF, fmt.Errorf("Can't add a capability, no replica registered for %s", conn.RemoteAddr().String())
 			}
 
 			existingReplica.capabilites = append(existingReplica.capabilites, newCapa)
 		}
+
+		if arg == "getack" {
+			isGetAck = true
+
+			if len(args) < i+2 {
+				return nil, REPLCONF_GETACK, ErrOutOfBounds
+			}
+
+			if args[i+1] != "*" {
+				return nil, REPLCONF_GETACK, fmt.Errorf("Expected `*` as argument for getack, got %s", args[i+1])
+			}
+		}
 	}
 
-	return []byte("+OK\r\n"), nil
+	if isGetAck {
+		response := encodeStringArray([]string{
+			"REPLCONF",
+			"ACK",
+			strconv.Itoa(replicationInfo.masterReplOffset),
+		})
+		return []byte(response), REPLCONF_GETACK, nil
+	} else {
+		return []byte("+OK\r\n"), REPLCONF, nil
+
+	}
 }
 
 func psync(conn net.Conn, args []string) ([]byte, error) {
@@ -279,8 +306,8 @@ func execute(conn net.Conn, query *query) ([]byte, command, error) {
 	}
 
 	if strings.EqualFold(command, "REPLCONF") {
-		response, err := replconf(conn, args)
-		return response, REPLCONF, err
+		response, command, err := replconf(conn, args)
+		return response, command, err
 	}
 
 	if strings.EqualFold(command, "PSYNC") {

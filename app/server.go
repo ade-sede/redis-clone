@@ -63,6 +63,10 @@ func main() {
 
 func mustPropagateToReplicas(command command, isReplicationChannel bool) bool {
 	if isReplicationChannel {
+		if command == REPLCONF_GETACK {
+			return true
+		}
+
 		return false
 	}
 
