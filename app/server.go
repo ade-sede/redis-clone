@@ -119,7 +119,7 @@ func handleConnection(conn net.Conn, isReplicationChannel bool, errorChannel cha
 		for _, query := range queries {
 			response, command, err := execute(conn, query)
 			if err != nil {
-				if errors.Is(err, ErrRespSimpleError) {
+				if errors.Is(err, ErrRespSimpleError) && !isReplicationChannel {
 					conn.Write([]byte(err.Error()))
 				}
 
