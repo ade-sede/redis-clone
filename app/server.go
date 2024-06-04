@@ -8,8 +8,39 @@ import (
 	"log"
 	"net"
 	"os"
+	"sync"
 	"time"
 )
+
+type connection struct {
+	port    int
+	handler net.Conn
+	mu      sync.Mutex
+}
+
+type instanceStatus struct {
+	globalLock    sync.Mutex
+	replId        string
+	replOffset    int
+	replicas      map[string]*replica // indexed by conn.RemoteAddr().String()
+	replicaof     string              // "<IP> <PORT>"
+	masterAddress string              // "<IP>:<PORT>"
+	masterIp      string
+	masterPort    int
+}
+
+func (status *instanceStatus) findReplica(conn net.Conn) *replica {
+	remoteAddr := conn.RemoteAddr().String()
+
+	replica, ok := status.replicas[remoteAddr]
+	if !ok {
+		return nil
+	}
+
+	return replica
+}
+
+var status instanceStatus
 
 type entry struct {
 	value     any
@@ -23,7 +54,7 @@ func main() {
 	errorLogger := log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
 
 	port := flag.Int("port", 6379, "port to listen to")
-	flag.StringVar(&replicationInfo.replicaof, "replicaof", "", "address and port of redis instance to follow")
+	flag.StringVar(&status.replicaof, "replicaof", "", "address and port of redis instance to follow")
 	flag.Parse()
 
 	replicationConnection, err := initReplication(*port)
@@ -33,7 +64,7 @@ func main() {
 
 	l, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", *port))
 	if err != nil {
-		errorLogger.Fatalln(fmt.Errorf("Failed to start server: err = %w", err))
+		errorLogger.Fatalln(fmt.Errorf("Failed to start instance: err = %w", err))
 	}
 	defer l.Close()
 
@@ -50,53 +81,57 @@ func main() {
 	}
 
 	for {
-		conn, err := l.Accept()
+		handler, err := l.Accept()
 		if err != nil {
+			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
+				continue
+			}
 			errorLogger.Println(fmt.Errorf("Error accepting TCP connection: err = %w", err))
 			continue
 		}
 
-		go handleConnection(conn, false, errorChannel)
-	}
+		status.globalLock.Lock()
 
-}
-
-func mustSendErrors(isReplicationChannel bool) bool {
-	if isReplicationChannel {
-		return false
-	}
-
-	return true
-}
-
-func mustSendReponse(command command, isReplicationChannel bool) bool {
-	if isReplicationChannel {
-		if command == REPLCONF_GETACK {
-			return true
+		conn := connection{
+			handler: handler,
+			port:    handler.RemoteAddr().(*net.TCPAddr).Port,
 		}
 
-		return false
+		go handleConnection(&conn, false, errorChannel)
+		status.globalLock.Unlock()
 	}
 
-	return true
 }
 
-func mustPropagateToReplicas(command command) bool {
-	if command == SET {
-		return true
-	}
-
-	return false
-}
-
-func parse(buf []byte) ([]*query, error) {
+func readParse(conn *connection) ([]*query, error) {
+	buf := make([]byte, 4096)
 	queries := make([]*query, 0)
 	offset := 0
+
+	// This way we do not block the lock, we only check whether or not someone is blocking it
+	status.globalLock.Lock()
+	status.globalLock.Unlock()
+
+	conn.mu.Lock()
+	conn.handler.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	_, err := conn.handler.Read(buf)
+	conn.mu.Unlock()
+
+	if err != nil {
+		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
+			return []*query{}, nil
+		} else if err == io.EOF {
+			return nil, nil
+		} else {
+			conn.handler.Close()
+			return nil, err
+		}
+	}
 
 	for {
 		query, doneReading, err := parseResp(buf, &offset)
 		if err != nil {
-			return nil, fmt.Errorf("Error parsing query. buf = %s, offset = %d, err = %w", string(buf), offset, err)
+			return nil, fmt.Errorf("Error parsing buf: `%s`. %w", string(buf), err)
 		}
 
 		if query != nil && query.queryType != RDBFile {
@@ -111,60 +146,37 @@ func parse(buf []byte) ([]*query, error) {
 	return queries, nil
 }
 
-func handleConnection(conn net.Conn, isReplicationChannel bool, errorChannel chan error) {
-	fmt.Println("New TCP connection from: ", conn.RemoteAddr().String())
+func handleConnection(conn *connection, toFollower bool, errorChannel chan error) {
 	for {
-		buf := make([]byte, 4096)
-		_, err := conn.Read(buf)
+		queries, err := readParse(conn)
 		if err != nil {
-			if err != io.EOF {
-				errorChannel <- fmt.Errorf("Error reading from TCP connection: err = %w", err)
-			}
-			conn.Close()
+			errorChannel <- err
 			return
 		}
-
-		fmt.Println("Received: ", string(buf))
-
-		queries, err := parse(buf)
-		if err != nil {
-			errorChannel <- fmt.Errorf("Error parsing queries: err = %w", err)
-			return
-		}
-
-		fmt.Printf("Parsed into %d queries\n", len(queries))
 
 		for _, query := range queries {
 			response, command, err := execute(conn, query)
 			if err != nil {
-				if errors.Is(err, ErrRespSimpleError) &&
-					mustSendErrors(isReplicationChannel) {
-					conn.Write([]byte(err.Error()))
+				if !toFollower && errors.Is(err, ErrRespSimpleError) {
+					conn.handler.Write([]byte(err.Error()))
 				}
 
 				errorChannel <- fmt.Errorf("Error executing the command: err = %w", err)
 				return
 			}
 
-			if response != nil && mustSendReponse(command, isReplicationChannel) {
-				_, err = conn.Write(response)
-				if err != nil {
-					errorChannel <- fmt.Errorf("Error writing to TCP connection: err = %w", err)
-					return
+			if response != nil {
+				if !toFollower {
+					conn.handler.Write(response)
+				} else if toFollower && command == REPLCONF_GETACK {
+					conn.handler.Write(response)
 				}
 			}
 
-			replicationInfo.masterReplOffset += len(query.raw)
+			status.replOffset += len(query.raw)
 
-			if mustPropagateToReplicas(command) {
-				for _, replica := range replicationInfo.replicas {
-					go func() {
-						_, err := replica.conn.Write(query.raw)
-						if err != nil {
-							errorChannel <- fmt.Errorf("Error propagating to replica: err = %w", err)
-						}
-					}()
-				}
+			if command == SET {
+				go replicate(query.raw)
 			}
 		}
 	}
