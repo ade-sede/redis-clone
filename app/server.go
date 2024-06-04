@@ -61,7 +61,15 @@ func main() {
 
 }
 
-func mustPropagateToReplicas(command command, isReplicationChannel bool) bool {
+func mustSendErrors(isReplicationChannel bool) bool {
+	if isReplicationChannel {
+		return false
+	}
+
+	return true
+}
+
+func mustSendReponse(command command, isReplicationChannel bool) bool {
 	if isReplicationChannel {
 		if command == REPLCONF_GETACK {
 			return true
@@ -70,6 +78,10 @@ func mustPropagateToReplicas(command command, isReplicationChannel bool) bool {
 		return false
 	}
 
+	return true
+}
+
+func mustPropagateToReplicas(command command) bool {
 	if command == SET {
 		return true
 	}
@@ -125,7 +137,8 @@ func handleConnection(conn net.Conn, isReplicationChannel bool, errorChannel cha
 		for _, query := range queries {
 			response, command, err := execute(conn, query)
 			if err != nil {
-				if errors.Is(err, ErrRespSimpleError) && !isReplicationChannel {
+				if errors.Is(err, ErrRespSimpleError) &&
+					mustSendErrors(isReplicationChannel) {
 					conn.Write([]byte(err.Error()))
 				}
 
@@ -133,7 +146,7 @@ func handleConnection(conn net.Conn, isReplicationChannel bool, errorChannel cha
 				return
 			}
 
-			if response != nil && !isReplicationChannel {
+			if response != nil && mustSendReponse(command, isReplicationChannel) {
 				_, err = conn.Write(response)
 				if err != nil {
 					errorChannel <- fmt.Errorf("Error writing to TCP connection: err = %w", err)
@@ -141,7 +154,7 @@ func handleConnection(conn net.Conn, isReplicationChannel bool, errorChannel cha
 				}
 			}
 
-			if mustPropagateToReplicas(command, isReplicationChannel) {
+			if mustPropagateToReplicas(command) {
 				for _, replica := range replicationInfo.replicas {
 					go func() {
 						_, err := replica.conn.Write(query.raw)

@@ -12,8 +12,8 @@ import (
 type command int
 
 const (
-	UNKNOWN command = -1
-	SET     command = iota
+	UNKNOWN command = iota
+	SET
 	GET
 	PING
 	ECHO
