@@ -209,7 +209,7 @@ func replconf(conn net.Conn, args []string) ([]byte, command, error) {
 			existingReplica.capabilites = append(existingReplica.capabilites, newCapa)
 		}
 
-		if arg == "getack" {
+		if strings.EqualFold(arg, "GETACK") {
 			isGetAck = true
 
 			if len(args) < i+2 {
