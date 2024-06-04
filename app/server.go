@@ -61,6 +61,18 @@ func main() {
 
 }
 
+func mustPropagateToReplicas(command command, isReplicationChannel bool) bool {
+	if isReplicationChannel {
+		return false
+	}
+
+	if command == SET {
+		return true
+	}
+
+	return false
+}
+
 func handleConnection(conn net.Conn, isReplicationChannel bool, errorChannel chan error) {
 	fmt.Println("New TCP connection from: ", conn.RemoteAddr().String())
 	for {
@@ -92,7 +104,7 @@ func handleConnection(conn net.Conn, isReplicationChannel bool, errorChannel cha
 			}
 
 			if query != nil {
-				response, mustPropagateToReplicas, err := execute(conn, query)
+				response, command, err := execute(conn, query)
 				if err != nil {
 					if errors.Is(err, ErrRespSimpleError) {
 						conn.Write([]byte(err.Error()))
@@ -110,7 +122,7 @@ func handleConnection(conn net.Conn, isReplicationChannel bool, errorChannel cha
 					}
 				}
 
-				if mustPropagateToReplicas {
+				if mustPropagateToReplicas(command, isReplicationChannel) {
 					for _, replica := range replicationInfo.replicas {
 						go func() {
 							_, err := replica.conn.Write(query.raw)

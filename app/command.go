@@ -9,6 +9,19 @@ import (
 	"time"
 )
 
+type command int
+
+const (
+	UNKNOWN command = -1
+	SET     command = iota
+	GET
+	PING
+	ECHO
+	INFO
+	REPLCONF
+	PSYNC
+)
+
 var expiryDurationOptionNames = []string{"EX", "PX"}
 
 func isExpiryDurationOption(optionName string) string {
@@ -226,15 +239,15 @@ func psync(conn net.Conn, args []string) ([]byte, error) {
 	return response, nil
 }
 
-func execute(conn net.Conn, query *query) (response []byte, mustPropagateToReplicas bool, err error) {
+func execute(conn net.Conn, query *query) ([]byte, command, error) {
 	if query.queryType != Array {
-		return nil, false, fmt.Errorf("Can't execute of query type: %d. Only Arrays are supported at this time (type %d)", query.queryType, Array)
+		return nil, UNKNOWN, fmt.Errorf("Can't execute of query type: %d. Only Arrays are supported at this time (type %d)", query.queryType, Array)
 	}
 
 	// Can assume everyhting will be a string for our limited use
 	array, err := query.asStringArray()
 	if err != nil {
-		return nil, false, err
+		return nil, UNKNOWN, err
 	}
 
 	command := array[0]
@@ -242,38 +255,38 @@ func execute(conn net.Conn, query *query) (response []byte, mustPropagateToRepli
 
 	if strings.EqualFold(command, "PING") {
 		response := ping()
-		return response, false, nil
+		return response, PING, nil
 	}
 
 	if strings.EqualFold(command, "ECHO") {
 		response, err := echo(args)
-		return response, false, err
+		return response, ECHO, err
 	}
 
 	if strings.EqualFold(command, "SET") {
 		response, err := set(args)
-		return response, true, err
+		return response, SET, err
 	}
 
 	if strings.EqualFold(command, "GET") {
 		response, err := get(args)
-		return response, false, err
+		return response, GET, err
 	}
 
 	if strings.EqualFold(command, "INFO") {
 		response, err := info(args)
-		return response, false, err
+		return response, INFO, err
 	}
 
 	if strings.EqualFold(command, "REPLCONF") {
 		response, err := replconf(conn, args)
-		return response, false, err
+		return response, REPLCONF, err
 	}
 
 	if strings.EqualFold(command, "PSYNC") {
-		response, err = psync(conn, args)
-		return response, false, err
+		response, err := psync(conn, args)
+		return response, PSYNC, err
 	}
 
-	return nil, false, fmt.Errorf("%w unknown command '%s'", ErrRespSimpleError, command)
+	return nil, UNKNOWN, fmt.Errorf("%w unknown command '%s'", ErrRespSimpleError, command)
 }
