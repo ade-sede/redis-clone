@@ -154,6 +154,8 @@ func handleConnection(conn net.Conn, isReplicationChannel bool, errorChannel cha
 				}
 			}
 
+			replicationInfo.masterReplOffset += len(query.raw)
+
 			if mustPropagateToReplicas(command) {
 				for _, replica := range replicationInfo.replicas {
 					go func() {

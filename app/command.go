@@ -250,7 +250,7 @@ func psync(conn net.Conn, args []string) ([]byte, error) {
 	args = nil
 	fullResync := encodeBulkString(fmt.Sprintf("FULLRESYNC %s %d",
 		replicationInfo.masterReplId,
-		replicationInfo.masterReplOffset))
+		0))
 
 	emptyRDB, err := hex.DecodeString(EMPTY_RDB_FILE)
 	if err != nil {
