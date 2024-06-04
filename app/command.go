@@ -271,7 +271,7 @@ func psync(conn net.Conn, args []string) ([]byte, error) {
 
 func wait(args []string) ([]byte, error) {
 	args = nil
-	return encodeInteger(0), nil
+	return encodeInteger(len(replicationInfo.replicas)), nil
 }
 
 func execute(conn net.Conn, query *query) ([]byte, command, error) {
