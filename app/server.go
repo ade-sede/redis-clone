@@ -83,11 +83,11 @@ func parse(buf []byte) ([]*query, error) {
 
 	for {
 		query, doneReading, err := parseResp(buf, &offset)
-		if err != nil && err != ErrPossibleRDBFile {
+		if err != nil {
 			return nil, fmt.Errorf("Error parsing query. buf = %s, offset = %d, err = %w", string(buf), offset, err)
 		}
 
-		if query != nil {
+		if query != nil && query.queryType != RDBFile {
 			queries = append(queries, query)
 		}
 

@@ -12,7 +12,6 @@ var (
 	ErrRespWrongNumberOfArguments = fmt.Errorf("%w wrong number of arguments\r\n", ErrRespSimpleError)
 	ErrOutOfBounds                = fmt.Errorf("Requested index is out of bounds")
 	ErrMissingCRLF                = fmt.Errorf("Missing CRLF")
-	ErrPossibleRDBFile            = fmt.Errorf("Possible RDB file")
 )
 
 type queryType int
@@ -23,6 +22,7 @@ const (
 	Integer
 	BulkString
 	Array
+	RDBFile
 )
 
 type query struct {
@@ -106,6 +106,11 @@ func parseSuffix(buf []byte, offset *int) error {
 	}
 
 	if !bytes.Equal(suffix, []byte("\r\n")) {
+		// We have read 2 bytes, that we expected to be \r\n
+		// We now know that they are not
+		// Meaning we have read two more than we should have
+		// Need to move the offset back by 2
+		*offset -= 2
 		return ErrMissingCRLF
 	}
 
@@ -216,14 +221,15 @@ func parseBulkString(buf []byte, offset *int) (*query, error) {
 
 	err = parseSuffix(buf, offset)
 	if err != nil {
-		// RDB Files look just like bulk string
-		// The only way to distinguish between the two are:
-		// - RDB files don't have a CRLF suffix
-		// - RDB files are only expected after a PSYNC command
-		// I dont feel like tracking state that accurately so for the
-		// moment I plan on ignoring errors matching this specific case
-		if err == ErrMissingCRLF {
-			return nil, ErrPossibleRDBFile
+		// RDB files and bulk strings share a similar format
+		// Similar prefix, followed by length of content
+		// Only difference is there is no CLRF at the end of RDB files,
+		// and it starts with the `REDIS` magic string
+		if bytes.HasPrefix(data, []byte("REDIS")) {
+			return &query{
+				queryType: RDBFile,
+				value:     data,
+			}, nil
 		}
 		return nil, err
 	}

@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -348,5 +350,80 @@ func TestSegmentWithSeveralCommands(t *testing.T) {
 
 	if !doneReading {
 		t.Errorf("segmentWithSeveralCommands() doneReading = %v, want %v", doneReading, true)
+	}
+}
+
+func TestParseRdbFile(t *testing.T) {
+	emptyRDB, err := hex.DecodeString(EMPTY_RDB_FILE)
+	if err != nil {
+		t.Errorf("parseRdbFile() error = %v", err)
+		return
+	}
+
+	input := []byte(fmt.Sprintf("$%d\r\n%s", len(emptyRDB), string(emptyRDB)))
+	offset := 0
+	got, doneReading, parseError := parseResp(input, &offset)
+
+	if parseError != nil {
+		t.Errorf("parseRdbFile() error = %v", parseError)
+		return
+	}
+
+	if !doneReading {
+		t.Errorf("parseRdbFile() doneReading = %v, want %v", doneReading, true)
+	}
+
+	if got.queryType != RDBFile {
+		t.Errorf("parseRdbFile() got = %v, want %v", got.queryType, RDBFile)
+	}
+
+	if offset != len(input) {
+		t.Errorf("parseRdbFile() offset = %v, want %v", offset, len(input))
+	}
+
+	val, ok := got.value.([]byte)
+	if !ok {
+		t.Errorf("parseRdbFile() error = %v", err)
+	}
+
+	if !bytes.Equal(val, emptyRDB) {
+		t.Errorf("parseRdbFile() got = %v, want %v", val, emptyRDB)
+	}
+
+	if !bytes.Equal(got.raw, input) {
+		t.Errorf("parseRdbFile() got = %v, want %v", got.raw, input)
+	}
+}
+
+func TestSegmentWithSeveralCommandsIncludingRDBFile(t *testing.T) {
+	emptyRDB, err := hex.DecodeString(EMPTY_RDB_FILE)
+	if err != nil {
+		t.Errorf("segmentWithSeveralCommandsIncludingRDBFile() error = %v", err)
+		return
+	}
+
+	input := []byte(fmt.Sprintf("$%d\r\n%s", len(emptyRDB), string(emptyRDB)))
+	input = append(input, []byte("$3\r\nSET\r\n")...)
+
+	offset := 0
+	_, doneReading, parseError := parseResp(input, &offset)
+
+	if parseError != nil {
+		t.Errorf("segmentWithSeveralCommandsIncludingRDBFile() error = %v", parseError)
+		return
+	}
+
+	if doneReading {
+		t.Errorf("segmentWithSeveralCommandsIncludingRDBFile() doneReading = %v, want %v", doneReading, false)
+	}
+
+	_, doneReading, parseError = parseResp(input, &offset)
+	if parseError != nil {
+		t.Errorf("segmentWithSeveralCommandsIncludingRDBFile() error = %v", parseError)
+		return
+	}
+
+	if !doneReading {
+		t.Errorf("segmentWithSeveralCommandsIncludingRDBFile() doneReading = %v, want %v", doneReading, true)
 	}
 }
