@@ -51,13 +51,14 @@ var data map[string]entry
 
 func main() {
 	data = make(map[string]entry)
+	errorC := make(chan error, 100)
 	errorLogger := log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
 
 	port := flag.Int("port", 6379, "port to listen to")
 	flag.StringVar(&status.replicaof, "replicaof", "", "address and port of redis instance to follow")
 	flag.Parse()
 
-	replicationConnection, err := initReplication(*port)
+	err := initReplication(*port, errorC)
 	if err != nil {
 		errorLogger.Fatalln(err)
 	}
@@ -68,17 +69,11 @@ func main() {
 	}
 	defer l.Close()
 
-	errorChannel := make(chan error, 100)
-
 	go func() {
-		for err := range errorChannel {
+		for err := range errorC {
 			errorLogger.Println(err)
 		}
 	}()
-
-	if replicationConnection != nil {
-		go handleConnection(replicationConnection, true, errorChannel)
-	}
 
 	for {
 		handler, err := l.Accept()
@@ -97,7 +92,7 @@ func main() {
 			port:    handler.RemoteAddr().(*net.TCPAddr).Port,
 		}
 
-		go handleConnection(&conn, false, errorChannel)
+		go handleConnection(&conn, false, errorC)
 		status.globalLock.Unlock()
 	}
 
@@ -146,11 +141,11 @@ func readParse(conn *connection) ([]*query, error) {
 	return queries, nil
 }
 
-func handleConnection(conn *connection, toFollower bool, errorChannel chan error) {
+func handleConnection(conn *connection, toFollower bool, errorC chan error) {
 	for {
 		queries, err := readParse(conn)
 		if err != nil {
-			errorChannel <- err
+			errorC <- err
 			return
 		}
 
@@ -161,7 +156,7 @@ func handleConnection(conn *connection, toFollower bool, errorChannel chan error
 					conn.handler.Write([]byte(err.Error()))
 				}
 
-				errorChannel <- fmt.Errorf("Error executing the command: err = %w", err)
+				errorC <- fmt.Errorf("Error executing the command: err = %w", err)
 				return
 			}
 

@@ -132,12 +132,18 @@ func sendCommand(conn net.Conn, command []string) (*query, int, error) {
 	buf := make([]byte, 4096)
 	commandArray := encodeStringArray(command)
 
-	conn.Write(commandArray)
-	_, err := conn.Read(buf)
+	writeLen, err := conn.Write(commandArray)
 	if err != nil {
-		return nil, len(commandArray), err
+		// TODO can I trust writeLen in case of err ?
+		// Any risk it is -1 ?
+		return nil, 0, err
 	}
-	query, _, _ := parseResp(buf, &offset)
+
+	n, err := conn.Read(buf)
+	if err != nil {
+		return nil, writeLen, err
+	}
+	query, _, _ := parseResp(buf[:n], &offset)
 
 	// Verbose logs to help with debuging
 	if query != nil {
@@ -148,8 +154,8 @@ func sendCommand(conn net.Conn, command []string) (*query, int, error) {
 			fmt.Printf("(FromRemote: %s) Received response %s\n", conn.RemoteAddr().String(), str)
 		}
 	} else {
-		fmt.Printf("(FromRemote: %s) Received response %s\n", conn.RemoteAddr().String(), buf)
+		fmt.Printf("(FromRemote: %s) Received response %s\n", conn.RemoteAddr().String(), buf[:n])
 	}
 
-	return query, len(commandArray), nil
+	return query, writeLen, nil
 }

@@ -30,14 +30,14 @@ func (r *replica) replicate(b []byte) {
 	r.expectedOffset += len(b)
 }
 
-func initReplication(listeningPort int) (*connection, error) {
+func initReplication(listeningPort int, errorC chan error) error {
 	status.replicas = make(map[string]*replica)
 
 	if status.replicaof == "" {
 		status.replId = generateReplId()
 		status.replOffset = 0
 
-		return nil, nil
+		return nil
 	}
 
 	status.replId = "?"
@@ -50,29 +50,38 @@ func initReplication(listeningPort int) (*connection, error) {
 		status.masterIp,
 		status.masterPort)
 
-	conn, err := net.Dial("tcp", status.masterAddress)
+	handle, err := net.Dial("tcp", status.masterAddress)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	handshake(conn, listeningPort)
-
-	return &connection{
-		handler: conn,
+	replicationConn := connection{
+		handler: handle,
 		port:    status.masterPort,
-	}, nil
+	}
+
+	go handleConnection(&replicationConn, true, errorC)
+
+	handshake(&replicationConn, listeningPort)
+
+	return nil
 }
 
-func handshake(conn net.Conn, listeningPort int) {
-	sendCommand(conn, []string{"PING"})
+func handshake(conn *connection, listeningPort int) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
 
-	sendCommand(conn, []string{
+	conn.handler.SetReadDeadline(time.Time{})
+
+	sendCommand(conn.handler, []string{"PING"})
+
+	sendCommand(conn.handler, []string{
 		"REPLCONF",
 		"listening-port",
 		strconv.Itoa(listeningPort),
 	})
 
-	sendCommand(conn, []string{
+	sendCommand(conn.handler, []string{
 		"REPLCONF",
 		"capa",
 		"psync2",
@@ -80,7 +89,7 @@ func handshake(conn net.Conn, listeningPort int) {
 		"eof",
 	})
 
-	response, _, _ := sendCommand(conn, []string{
+	response, _, _ := sendCommand(conn.handler, []string{
 		"PSYNC",
 		status.replId,
 		strconv.Itoa(status.replOffset),
