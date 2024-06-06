@@ -114,7 +114,7 @@ func readParse(conn *connection) ([]*query, error) {
 
 	conn.mu.Lock()
 	conn.handler.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-	_, err := conn.handler.Read(buf)
+	n, err := conn.handler.Read(buf)
 	conn.mu.Unlock()
 
 	if err != nil {
@@ -129,9 +129,9 @@ func readParse(conn *connection) ([]*query, error) {
 	}
 
 	for {
-		query, doneReading, err := parseResp(buf, &offset)
+		query, doneReading, err := parseResp(buf[:n], &offset)
 		if err != nil {
-			return nil, fmt.Errorf("Error parsing buf: `%s`. %w", string(buf), err)
+			return nil, fmt.Errorf("Error parsing buf: `%s`. %w", string(buf[:n]), err)
 		}
 
 		if query != nil && query.queryType != RDBFile {
