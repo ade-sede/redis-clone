@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"net"
 	"strings"
 )
 
@@ -123,39 +122,4 @@ func execute(conn *connection, query *query) ([]byte, command, error) {
 	}
 
 	return nil, UNKNOWN, fmt.Errorf("%w unknown command '%s'", ErrRespSimpleError, command)
-}
-
-func sendCommand(conn net.Conn, command []string) (*query, int, error) {
-	fmt.Printf("(ToRemote: %s) Sending command: %v\n", conn.RemoteAddr().String(), command)
-
-	offset := 0
-	buf := make([]byte, 4096)
-	commandArray := encodeStringArray(command)
-
-	writeLen, err := conn.Write(commandArray)
-	if err != nil {
-		// TODO can I trust writeLen in case of err ?
-		// Any risk it is -1 ?
-		return nil, 0, err
-	}
-
-	n, err := conn.Read(buf)
-	if err != nil {
-		return nil, writeLen, err
-	}
-	query, _, _ := parseResp(buf[:n], &offset)
-
-	// Verbose logs to help with debuging
-	if query != nil {
-		str, err := query.asString()
-		if err != nil {
-			fmt.Printf("(FromRemote: %s) Received response %s\n", conn.RemoteAddr().String(), buf)
-		} else {
-			fmt.Printf("(FromRemote: %s) Received response %s\n", conn.RemoteAddr().String(), str)
-		}
-	} else {
-		fmt.Printf("(FromRemote: %s) Received response %s\n", conn.RemoteAddr().String(), buf[:n])
-	}
-
-	return query, writeLen, nil
 }

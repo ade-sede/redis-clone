@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -73,29 +74,39 @@ func handshake(conn *connection, listeningPort int) {
 
 	conn.handler.SetReadDeadline(time.Time{})
 
-	sendCommand(conn.handler, []string{"PING"})
+	reader := bufio.NewReader(conn.handler)
 
-	sendCommand(conn.handler, []string{
+	conn.handler.Write(encodeStringArray([]string{"PING"}))
+	reader.ReadBytes('\n') // "+PONG\r\n"
+
+	conn.handler.Write(encodeStringArray([]string{
 		"REPLCONF",
 		"listening-port",
 		strconv.Itoa(listeningPort),
-	})
+	}))
+	reader.ReadBytes('\n') // "+OK\r\n"
 
-	sendCommand(conn.handler, []string{
+	conn.handler.Write(encodeStringArray([]string{
 		"REPLCONF",
 		"capa",
 		"psync2",
 		"capa",
 		"eof",
-	})
+	}))
+	reader.ReadBytes('\n') // "+OK\r\n"
 
-	response, _, _ := sendCommand(conn.handler, []string{
+	conn.handler.Write(encodeStringArray([]string{
 		"PSYNC",
 		status.replId,
 		strconv.Itoa(status.replOffset),
-	})
+	}))
 
-	s, _ := response.asString()
+	// "+FULLRESYNC <replid> <reploffset>\r\n"
+	response, _ := reader.ReadBytes('\n')
+
+	offset := 0
+	query, _, _ := parseResp(response, &offset)
+	s, _ := query.asString()
 
 	array := strings.Fields(s)
 	status.replId = array[1]
@@ -235,14 +246,22 @@ func pollReplicaCount(ctx context.Context, replica *replica, ack chan bool) {
 		case <-ctx.Done():
 			return
 		default:
-			query, n, err := sendCommand(
-				replica.conn.handler,
+			n, err := replica.conn.handler.Write(encodeStringArray(
 				[]string{"REPLCONF", "GETACK", "*"},
-			)
+			))
 			replica.expectedOffset += n
 
 			if err != nil {
 				continue
+			}
+
+			offset := 0
+			buf := make([]byte, 100)
+			_, err = replica.conn.handler.Read(buf)
+			query, doneReading, _ := parseResp(buf, &offset)
+
+			if !doneReading {
+				fmt.Println("Warning, received more commands than expected as part of response")
 			}
 
 			if query != nil {

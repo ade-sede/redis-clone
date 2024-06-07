@@ -108,7 +108,7 @@ func readParse(conn *connection) ([]*query, error) {
 	status.globalLock.Unlock()
 
 	conn.mu.Lock()
-	conn.handler.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	conn.handler.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
 	n, err := conn.handler.Read(buf)
 	conn.mu.Unlock()
 
