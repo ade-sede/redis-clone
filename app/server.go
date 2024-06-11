@@ -42,15 +42,7 @@ func (status *instanceStatus) findReplica(conn net.Conn) *replica {
 
 var status instanceStatus
 
-type entry struct {
-	value     any
-	expiresAt *time.Time
-}
-
-var data map[string]entry
-
 func main() {
-	data = make(map[string]entry)
 	errorC := make(chan error, 100)
 	errorLogger := log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
 
@@ -58,6 +50,7 @@ func main() {
 	flag.StringVar(&status.replicaof, "replicaof", "", "address and port of redis instance to follow")
 	flag.Parse()
 
+	initStore()
 	err := initReplication(*port, errorC)
 	if err != nil {
 		errorLogger.Fatalln(err)
@@ -103,7 +96,6 @@ func readParse(conn *connection) ([]*query, error) {
 	queries := make([]*query, 0)
 	offset := 0
 
-	// This way we do not block the lock, we only check whether or not someone is blocking it
 	status.globalLock.Lock()
 	status.globalLock.Unlock()
 
