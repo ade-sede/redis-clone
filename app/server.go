@@ -133,7 +133,7 @@ func readParse(conn *connection) ([]*query, error) {
 	return queries, nil
 }
 
-func handleConnection(conn *connection, toFollower bool, errorC chan error) {
+func handleConnection(conn *connection, connectionToMaster bool, errorC chan error) {
 	for {
 		queries, err := readParse(conn)
 		if err != nil {
@@ -144,7 +144,7 @@ func handleConnection(conn *connection, toFollower bool, errorC chan error) {
 		for _, query := range queries {
 			response, command, err := execute(conn, query)
 			if err != nil {
-				if !toFollower && errors.Is(err, ErrRespSimpleError) {
+				if !connectionToMaster && errors.Is(err, ErrRespSimpleError) {
 					conn.handler.Write([]byte(err.Error()))
 				}
 
@@ -153,9 +153,9 @@ func handleConnection(conn *connection, toFollower bool, errorC chan error) {
 			}
 
 			if response != nil {
-				if !toFollower {
+				if !connectionToMaster {
 					conn.handler.Write(response)
-				} else if toFollower && command == REPLCONF_GETACK {
+				} else if connectionToMaster && command == REPLCONF_GETACK {
 					conn.handler.Write(response)
 				}
 			}
