@@ -28,6 +28,8 @@ type instanceStatus struct {
 	masterAddress string              // "<IP>:<PORT>"
 	masterIp      string
 	masterPort    int
+	dir           string
+	dbFileName    string
 }
 
 func (status *instanceStatus) findReplica(conn net.Conn) *replica {
@@ -49,6 +51,8 @@ func main() {
 
 	port := flag.Int("port", 6379, "port to listen to")
 	flag.StringVar(&status.replicaof, "replicaof", "", "address and port of redis instance to follow")
+	flag.StringVar(&status.dir, "dir", "", "directory to store the database")
+	flag.StringVar(&status.dbFileName, "dbfilename", "dump.rdb", "name of the database file")
 	flag.Parse()
 
 	initStore()
