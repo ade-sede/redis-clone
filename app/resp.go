@@ -1,9 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
-	"slices"
+	"strconv"
 	"unicode"
 )
 
@@ -28,7 +29,41 @@ const (
 type query struct {
 	queryType queryType
 	value     interface{}
-	raw       []byte
+}
+
+func (q *query) raw() []byte {
+	if q.queryType == SimpleString {
+		return encodeSimpleString(q.value.(string))
+	} else if q.queryType == SimpleError {
+		return encodeSimpleError(q.value.(string))
+	} else if q.queryType == Integer {
+		return encodeInteger(q.value.(int))
+	} else if q.queryType == BulkString {
+		return encodeBulkString(q.value.(string))
+	} else if q.queryType == Array {
+		array := q.value.([]*query)
+
+		response := make([]byte, 0)
+		response = append(response, fmt.Sprintf("*%d\r\n", len(array))...)
+
+		for _, innerQuery := range array {
+			raw := innerQuery.raw()
+			response = append(response, raw...)
+		}
+
+		return response
+	} else if q.queryType == RDBFile {
+		val := q.value.([]byte)
+
+		response := make([]byte, 0)
+		response = append(response, fmt.Sprintf("$%d\r\n", len(val))...)
+		response = append(response, val...)
+
+		return response
+	} else {
+		panic("Unsupported query type")
+	}
+
 }
 
 func (q *query) asString() (string, error) {
@@ -99,98 +134,42 @@ func isDigit(b byte) bool {
 	return unicode.IsDigit(rune(b))
 }
 
-func parseSuffix(buf []byte, offset *int) error {
-	suffix, err := extractBytes(buf, offset, 2)
-	if err != nil {
-		return err
-	}
-
-	if !bytes.Equal(suffix, []byte("\r\n")) {
-		// We have read 2 bytes, that we expected to be \r\n
-		// We now know that they are not
-		// Meaning we have read two more than we should have
-		// Need to move the offset back by 2
-		*offset -= 2
-		return ErrMissingCRLF
-	}
-
-	return nil
-}
-
-func extractBytes(buf []byte, offset *int, size int) ([]byte, error) {
-	start := *offset
-	end := start + size
-
-	if *offset+size > len(buf) {
-		return nil, fmt.Errorf("%w, len = %d, offset = %d, size = %d", ErrOutOfBounds, len(buf), *offset, size)
-	}
-
-	*offset = end
-
-	return buf[start:end], nil
-}
-
-func atoi(buf []byte, offset *int) (int, error) {
-	if *offset >= len(buf) {
-		return 0, fmt.Errorf("%w, len = %d, offset = %d", ErrOutOfBounds, len(buf), *offset)
-	}
-
+func atoi(reader *bufio.Reader) (int, error) {
 	var n int
-	var sign int = 1
 
-	if buf[*offset] == '-' {
-		sign = -1
-		*offset += 1
-	} else if buf[*offset] == '+' {
-		sign = 1
-		*offset += 1
-	}
-
-	for ; *offset < len(buf); *offset += 1 {
-		char := buf[*offset]
-
-		if !isDigit(char) {
-			break
-		}
-
-		n = n*10 + (int(char) - 48)
-	}
-
-	n = n * sign
-
-	err := parseSuffix(buf, offset)
+	number, err := reader.ReadString('\n')
 	if err != nil {
-		return n, err
+		return 0, err
+	}
+
+	withoutCRLF := number[:len(number)-2]
+
+	if withoutCRLF == "" {
+		return 0, nil
+	}
+
+	n, err = strconv.Atoi(string(withoutCRLF))
+	if err != nil {
+		return 0, err
 	}
 
 	return n, nil
 }
 
-func parseSimpleString(buf []byte, offset *int) (*query, error) {
-	i := slices.Index(buf, byte('\r'))
-	if i == -1 {
-		return nil, ErrMissingCRLF
-	}
-
-	i -= 1
-
-	str := buf[*offset : *offset+i]
-	*offset += i
-
-	err := parseSuffix(buf, offset)
+func parseSimpleString(reader *bufio.Reader) (*query, error) {
+	buf, err := reader.ReadBytes('\n')
 	if err != nil {
 		return nil, err
 	}
 
 	return &query{
 		queryType: SimpleString,
-		value:     string(str),
+		value:     string(buf[:len(buf)-2]),
 	}, nil
 }
 
-func parseSimpleError(buf []byte, offset *int) (*query, error) {
-	// Simple errors are just like simple strings
-	query, err := parseSimpleString(buf, offset)
+func parseSimpleError(reader *bufio.Reader) (*query, error) {
+	query, err := parseSimpleString(reader)
 	if err != nil {
 		return nil, err
 	}
@@ -200,27 +179,34 @@ func parseSimpleError(buf []byte, offset *int) (*query, error) {
 	return query, nil
 }
 
-func parseBulkString(buf []byte, offset *int) (*query, error) {
-	length, err := atoi(buf, offset)
+func parseBulkString(reader *bufio.Reader) (*query, error) {
+	length, err := atoi(reader)
 	if err != nil {
 		return nil, err
 	}
 
-	// Null bulk string
 	if length < 0 {
+		reader.Discard(2)
 		return &query{
 			queryType: BulkString,
 			value:     nil,
 		}, nil
 	}
 
-	data, err := extractBytes(buf, offset, int(length))
+	data := make([]byte, length)
+	n, err := reader.Read(data)
 	if err != nil {
 		return nil, err
 	}
 
-	err = parseSuffix(buf, offset)
-	if err != nil {
+	if n != length {
+		return nil, fmt.Errorf("Expected %d bytes, got %d", length, n)
+	}
+
+	data = data[:n]
+
+	suffix, err := reader.Peek(2)
+	if !bytes.Equal(suffix, []byte("\r\n")) {
 		// RDB files and bulk strings share a similar format
 		// Similar prefix, followed by length of content
 		// Only difference is there is no CLRF at the end of RDB files,
@@ -231,8 +217,13 @@ func parseBulkString(buf []byte, offset *int) (*query, error) {
 				value:     data,
 			}, nil
 		}
+	}
+
+	if err != nil {
 		return nil, err
 	}
+
+	reader.Discard(len(suffix))
 
 	return &query{
 		queryType: BulkString,
@@ -260,17 +251,20 @@ func encodeSimpleString(str string) []byte {
 	return []byte(fmt.Sprintf("+%s\r\n", str))
 }
 
+func encodeSimpleError(str string) []byte {
+	return []byte(fmt.Sprintf("-%s\r\n", str))
+}
+
 func encodeInteger(i int) []byte {
 	return []byte(fmt.Sprintf(":%d\r\n", i))
 }
 
-func parseArray(buf []byte, offset *int) (*query, error) {
-	length, err := atoi(buf, offset)
+func parseArray(reader *bufio.Reader) (*query, error) {
+	length, err := atoi(reader)
 	if err != nil {
 		return nil, err
 	}
 
-	// Null array
 	if length < 0 {
 		return &query{
 			queryType: Array,
@@ -288,7 +282,7 @@ func parseArray(buf []byte, offset *int) (*query, error) {
 	arr := make([]*query, 0, length)
 
 	for i := 0; i < length; i++ {
-		elem, _, err := parseResp(buf, offset)
+		elem, err := readResp(reader)
 		if err != nil {
 			return nil, err
 		}
@@ -302,35 +296,41 @@ func parseArray(buf []byte, offset *int) (*query, error) {
 	}, nil
 }
 
-func parseResp(buf []byte, offset *int) (*query, bool, error) {
-	var err error
+func readRespFromBuffer(b []byte) (*query, error) {
+	reader := bufio.NewReader(bytes.NewReader(b))
+	return readResp(reader)
+}
+
+func readRespFromNetwork(conn *connection) (*query, error) {
+	reader := bufio.NewReader(conn.handler)
+	return readResp(reader)
+}
+
+func readResp(reader *bufio.Reader) (*query, error) {
 	var q *query
+	var prefix byte
+	var err error
 
-	start := *offset
-
-	if *offset >= len(buf) {
-		return nil, true, fmt.Errorf("%w, len = %d, offset = %d", ErrOutOfBounds, len(buf), *offset)
+	prefix, err = reader.ReadByte()
+	if err != nil {
+		return nil, err
 	}
 
-	switch buf[*offset] {
+	switch prefix {
 	case '+':
-		*offset += 1
-		q, err = parseSimpleString(buf, offset)
+		q, err = parseSimpleString(reader)
 		if err != nil {
-
-			return nil, true, err
+			return nil, err
 		}
 	case '-':
-		*offset += 1
-		q, err = parseSimpleError(buf, offset)
+		q, err = parseSimpleError(reader)
 		if err != nil {
-			return nil, true, err
+			return nil, err
 		}
 	case ':':
-		*offset += 1
-		n, err := atoi(buf, offset)
+		n, err := atoi(reader)
 		if err != nil {
-			return nil, true, err
+			return nil, err
 		}
 
 		q = &query{
@@ -338,27 +338,18 @@ func parseResp(buf []byte, offset *int) (*query, bool, error) {
 			value:     n,
 		}
 	case '$':
-		*offset += 1
-		q, err = parseBulkString(buf, offset)
+		q, err = parseBulkString(reader)
 		if err != nil {
-			return nil, true, err
+			return nil, err
 		}
 	case '*':
-		*offset += 1
-		q, err = parseArray(buf, offset)
+		q, err = parseArray(reader)
 		if err != nil {
-			return nil, true, err
+			return nil, err
 		}
 	default:
-		return nil, true, fmt.Errorf("Unexpected character `%c` at offset %d", buf[*offset], *offset)
+		return nil, fmt.Errorf("Unexpected character `%c`", prefix)
 	}
 
-	q.raw = buf[start:*offset]
-
-	// Have we read everything there is to read ?
-	if *offset >= len(buf) || buf[*offset] == 0 {
-		return q, true, nil
-	}
-
-	return q, false, nil
+	return q, nil
 }

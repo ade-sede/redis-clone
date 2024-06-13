@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"flag"
 	"fmt"
@@ -91,79 +92,54 @@ func main() {
 
 }
 
-func readParse(conn *connection) ([]*query, error) {
-	buf := make([]byte, 4096)
-	queries := make([]*query, 0)
-	offset := 0
-
-	status.globalLock.Lock()
-	status.globalLock.Unlock()
-
-	conn.mu.Lock()
-	conn.handler.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-	n, err := conn.handler.Read(buf)
-	conn.mu.Unlock()
-
-	if err != nil {
-		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
-			return []*query{}, nil
-		} else if err == io.EOF {
-			return nil, nil
-		} else {
-			conn.handler.Close()
-			return nil, err
-		}
-	}
-
-	for {
-		query, doneReading, err := parseResp(buf[:n], &offset)
-		if err != nil {
-			return nil, fmt.Errorf("Error parsing buf: `%s`. %w", string(buf[:n]), err)
-		}
-
-		if query != nil && query.queryType != RDBFile {
-			queries = append(queries, query)
-		}
-
-		if doneReading {
-			break
-		}
-	}
-
-	return queries, nil
-}
-
 func handleConnection(conn *connection, connectionToMaster bool, errorC chan error) {
+	reader := bufio.NewReader(conn.handler)
+
 	for {
-		queries, err := readParse(conn)
+		status.globalLock.Lock()
+		status.globalLock.Unlock()
+
+		conn.mu.Lock()
+		conn.handler.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		query, err := readResp(reader)
+		conn.mu.Unlock()
+
 		if err != nil {
-			errorC <- err
-			return
-		}
-
-		for _, query := range queries {
-			response, command, err := execute(conn, query)
-			if err != nil {
-				if !connectionToMaster && errors.Is(err, ErrRespSimpleError) {
-					conn.handler.Write([]byte(err.Error()))
-				}
-
-				errorC <- fmt.Errorf("Error executing the command: err = %w", err)
+			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
+				continue
+			} else if err == io.EOF {
+				continue
+			} else {
+				conn.handler.Close()
+				errorC <- err
 				return
 			}
+		}
 
-			if response != nil {
-				if !connectionToMaster {
-					conn.handler.Write(response)
-				} else if connectionToMaster && command == REPLCONF_GETACK {
-					conn.handler.Write(response)
-				}
+		response, command, err := execute(conn, query)
+		if err != nil {
+			if !connectionToMaster && errors.Is(err, ErrRespSimpleError) {
+				conn.handler.Write([]byte(err.Error()))
 			}
 
-			status.replOffset += len(query.raw)
+			errorC <- fmt.Errorf("Error executing the command: err = %w", err)
+			continue
+		}
+
+		if response != nil {
+			if !connectionToMaster {
+				conn.handler.Write(response)
+			} else if connectionToMaster && command == REPLCONF_GETACK {
+				conn.handler.Write(response)
+			}
+		}
+
+		if query.queryType != RDBFile {
+			rawQuery := query.raw()
+			status.replOffset += len(rawQuery)
 
 			if command == SET {
-				go replicate(query.raw)
+				go replicate(rawQuery)
 			}
 		}
 	}

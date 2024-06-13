@@ -26,7 +26,6 @@ type replica struct {
 }
 
 func (r *replica) replicate(b []byte) {
-	// For a simple write we don't need to make use of the connection's mutex
 	r.conn.handler.Write(b)
 	r.expectedOffset += len(b)
 }
@@ -72,19 +71,18 @@ func handshake(conn *connection, listeningPort int) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	conn.handler.SetReadDeadline(time.Time{})
-
+	conn.handler.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 	reader := bufio.NewReader(conn.handler)
 
 	conn.handler.Write(encodeStringArray([]string{"PING"}))
-	reader.ReadBytes('\n') // "+PONG\r\n"
+	readResp(reader) // expect "+PONG\r\n"
 
 	conn.handler.Write(encodeStringArray([]string{
 		"REPLCONF",
 		"listening-port",
 		strconv.Itoa(listeningPort),
 	}))
-	reader.ReadBytes('\n') // "+OK\r\n"
+	readResp(reader) // expect "+OK\r\n"
 
 	conn.handler.Write(encodeStringArray([]string{
 		"REPLCONF",
@@ -93,7 +91,7 @@ func handshake(conn *connection, listeningPort int) {
 		"capa",
 		"eof",
 	}))
-	reader.ReadBytes('\n') // "+OK\r\n"
+	readResp(reader) // expect "+OK\r\n"
 
 	conn.handler.Write(encodeStringArray([]string{
 		"PSYNC",
@@ -101,11 +99,8 @@ func handshake(conn *connection, listeningPort int) {
 		strconv.Itoa(status.replOffset),
 	}))
 
-	// "+FULLRESYNC <replid> <reploffset>\r\n"
-	response, _ := reader.ReadBytes('\n')
-
-	offset := 0
-	query, _, _ := parseResp(response, &offset)
+	// expect "+FULLRESYNC <repl-id> <repl-offset>\r\n"
+	query, _ := readResp(reader)
 	s, _ := query.asString()
 
 	array := strings.Fields(s)
@@ -178,7 +173,7 @@ func psync(conn *connection) ([]byte, error) {
 
 	// Should actually send the server's offset instead of 0
 	// But codecrafters' test suite expects 0
-	fullResyncNotification := encodeBulkString(fmt.Sprintf("FULLRESYNC %s %d",
+	fullResyncNotification := encodeSimpleString(fmt.Sprintf("FULLRESYNC %s %d",
 		status.replId,
 		0))
 
@@ -239,30 +234,20 @@ func pollReplicaCount(ctx context.Context, replica *replica, ack chan bool) {
 		return
 	}
 
-	replica.conn.handler.SetReadDeadline(time.Time{})
+	n, _ := replica.conn.handler.Write(encodeStringArray(
+		[]string{"REPLCONF", "GETACK", "*"},
+	))
+	replica.expectedOffset += n
+
+	reader := bufio.NewReader(replica.conn.handler)
+	replica.conn.handler.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
-			n, err := replica.conn.handler.Write(encodeStringArray(
-				[]string{"REPLCONF", "GETACK", "*"},
-			))
-			replica.expectedOffset += n
-
-			if err != nil {
-				continue
-			}
-
-			offset := 0
-			buf := make([]byte, 100)
-			_, err = replica.conn.handler.Read(buf)
-			query, doneReading, _ := parseResp(buf, &offset)
-
-			if !doneReading {
-				fmt.Println("Warning, received more commands than expected as part of response")
-			}
+			query, _ := readResp(reader)
 
 			if query != nil {
 				array, _ := query.asArray()

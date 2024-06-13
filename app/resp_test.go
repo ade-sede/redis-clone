@@ -1,9 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"testing"
 )
@@ -22,35 +22,6 @@ type arrayTestCase struct {
 	wantErr  bool
 }
 
-func TestExtractBytes(t *testing.T) {
-	buf := []byte("12345")
-
-	t.Run("HappyPath", func(t *testing.T) {
-		offset := 0
-		got, err := extractBytes(buf, &offset, 5)
-
-		if err != nil {
-			t.Errorf("extractBytes() error = %v, wantErr %v", err, false)
-		}
-
-		if !bytes.Equal(got, buf) {
-			t.Errorf("extractBytes() got = %v, want %v", got, buf)
-		}
-
-		if offset != 5 {
-			t.Errorf("extractBytes() offset = %v, want %v", offset, 5)
-		}
-	})
-	t.Run("OutOfBounds", func(t *testing.T) {
-		offset := 0
-		_, err := extractBytes(buf, &offset, 6)
-
-		if !errors.Is(err, ErrOutOfBounds) {
-			t.Errorf("extractBytes() error = %v, wantErr %v", err, ErrOutOfBounds)
-		}
-	})
-}
-
 func TestAtoi(t *testing.T) {
 	tests := []testCase{
 		{"ValidInteger", "123\r\n", 123, false},
@@ -58,24 +29,23 @@ func TestAtoi(t *testing.T) {
 		{"EmptyString", "", 0, true},
 		// Required to support the null bulk string
 		{"EmptyStringCRLF", "\r\n", 0, false},
-		{"MissingCRLF", "123", 123, true},
+		{"MissingCRLF", "123", 0, true},
 		{"NegativeInteger", "-456\r\n", -456, false},
 		{"NegativeInvalidInteger", "-abc\r\n", 0, true},
-		{"NegativeMissingCRLF", "-789", -789, true},
+		{"NegativeMissingCRLF", "-789", 0, true},
 		{"MalformedNegative", "--789", 0, true},
 		{"ExplicitPositive", "+123\r\n", 123, false},
 		{"MalformedPositive", "+++123\r\n", 0, true},
 		{"Zero", "0\r\n", 0, false},
 		{"WhitespacesBeforeNumber", "  123", 0, true},
-		{"WhitespacesAfterNumber", "123  ", 123, true},
 		{"WhitespacesBeforeAndAfterNumber", "  123  ", 0, true},
 		{"WhitespacesBetweenMinusAndNumber", "- 123", 0, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			offset := 0
-			got, err := atoi([]byte(tt.input), &offset)
+			reader := bufio.NewReader(bytes.NewReader([]byte(tt.input)))
+			got, err := atoi(reader)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("atoi() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -97,8 +67,8 @@ func TestParseSimpleString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			offset := 0
-			got, _, parseError := parseResp([]byte(tt.input), &offset)
+			reader := bufio.NewReader(bytes.NewReader([]byte(tt.input)))
+			got, parseError := readResp(reader)
 
 			if (parseError != nil) != tt.wantErr {
 				t.Errorf("parseSimpleString() error = %v, wantErr %v", parseError, tt.wantErr)
@@ -129,8 +99,8 @@ func TestParseSimpleError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			offset := 0
-			got, _, parseError := parseResp([]byte(tt.input), &offset)
+			reader := bufio.NewReader(bytes.NewReader([]byte(tt.input)))
+			got, parseError := readResp(reader)
 
 			if (parseError != nil) != tt.wantErr {
 				t.Errorf("parseSimpleError() error = %v, wantErr %v", parseError, tt.wantErr)
@@ -167,8 +137,8 @@ func TestParseInteger(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			offset := 0
-			got, _, parseError := parseResp([]byte(tt.input), &offset)
+			reader := bufio.NewReader(bytes.NewReader([]byte(tt.input)))
+			got, parseError := readResp(reader)
 
 			if (parseError != nil) != tt.wantErr {
 				t.Errorf("parseInteger() error = %v, wantErr %v", parseError, tt.wantErr)
@@ -201,8 +171,8 @@ func TestParseBulkString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			offset := 0
-			got, _, parseError := parseResp([]byte(tt.input), &offset)
+			reader := bufio.NewReader(bytes.NewReader([]byte(tt.input)))
+			got, parseError := readResp(reader)
 
 			if (parseError != nil) != tt.wantErr {
 				t.Errorf("parseBulkString() error = %v, wantErr %v", parseError, tt.wantErr)
@@ -238,8 +208,8 @@ func TestParseArray(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			offset := 0
-			got, _, parseError := parseResp([]byte(tt.input), &offset)
+			reader := bufio.NewReader(bytes.NewReader([]byte(tt.input)))
+			got, parseError := readResp(reader)
 
 			if (parseError != nil) != tt.wantErr {
 				t.Errorf("parseArray() error = %v, wantErr %v", parseError, tt.wantErr)
@@ -271,8 +241,8 @@ func TestParseNestedArray(t *testing.T) {
 		3,
 	}
 
-	offset := 0
-	got, _, parseError := parseResp([]byte(input), &offset)
+	reader := bufio.NewReader(bytes.NewReader([]byte(input)))
+	got, parseError := readResp(reader)
 
 	if parseError != nil {
 		t.Errorf("parseNestedArray() error = %v", parseError)
@@ -330,26 +300,40 @@ func helperArrayEquality(t *testing.T, arr []*query, expected []interface{}) {
 func TestSegmentWithSeveralCommands(t *testing.T) {
 	input := "$3\r\nSET\r\n$3\r\nkey\r\n"
 
-	offset := 0
-	_, doneReading, parseError := parseResp([]byte(input), &offset)
+	reader := bufio.NewReader(bytes.NewReader([]byte(input)))
+	query, parseError := readResp(reader)
 
 	if parseError != nil {
 		t.Errorf("segmentWithSeveralCommands() error = %v", parseError)
 		return
 	}
 
-	if doneReading {
-		t.Errorf("segmentWithSeveralCommands() doneReading = %v, want %v", doneReading, false)
+	if query == nil {
+		t.Errorf("segmentWithSeveralCommands() query is nil")
 	}
 
-	_, doneReading, parseError = parseResp([]byte(input), &offset)
+	if query.value.(string) != "SET" {
+		t.Errorf("segmentWithSeveralCommands() got = %v, want %v", query.value, "SET")
+	}
+
+	query, parseError = readResp(reader)
 	if parseError != nil {
 		t.Errorf("segmentWithSeveralCommands() error = %v", parseError)
 		return
 	}
 
-	if !doneReading {
-		t.Errorf("segmentWithSeveralCommands() doneReading = %v, want %v", doneReading, true)
+	if query == nil {
+		t.Errorf("segmentWithSeveralCommands() query is nil")
+	}
+
+	if query.value.(string) != "key" {
+		t.Errorf("segmentWithSeveralCommands() got = %v, want %v", query.value, "key")
+	}
+
+	query, parseError = readResp(reader)
+
+	if query != nil {
+		t.Errorf("segmentWithSeveralCommands() query is not nil")
 	}
 }
 
@@ -361,24 +345,20 @@ func TestParseRdbFile(t *testing.T) {
 	}
 
 	input := []byte(fmt.Sprintf("$%d\r\n%s", len(emptyRDB), string(emptyRDB)))
-	offset := 0
-	got, doneReading, parseError := parseResp(input, &offset)
+	reader := bufio.NewReader(bytes.NewReader(input))
+	got, parseError := readResp(reader)
 
 	if parseError != nil {
 		t.Errorf("parseRdbFile() error = %v", parseError)
 		return
 	}
 
-	if !doneReading {
-		t.Errorf("parseRdbFile() doneReading = %v, want %v", doneReading, true)
+	if got == nil {
+		t.Errorf("parseRdbFile() got = %v, want not nil", got)
 	}
 
 	if got.queryType != RDBFile {
 		t.Errorf("parseRdbFile() got = %v, want %v", got.queryType, RDBFile)
-	}
-
-	if offset != len(input) {
-		t.Errorf("parseRdbFile() offset = %v, want %v", offset, len(input))
 	}
 
 	val, ok := got.value.([]byte)
@@ -390,8 +370,8 @@ func TestParseRdbFile(t *testing.T) {
 		t.Errorf("parseRdbFile() got = %v, want %v", val, emptyRDB)
 	}
 
-	if !bytes.Equal(got.raw, input) {
-		t.Errorf("parseRdbFile() got = %v, want %v", got.raw, input)
+	if !bytes.Equal(got.raw(), input) {
+		t.Errorf("parseRdbFile() got = %v, want %v", got.raw(), input)
 	}
 }
 
@@ -405,25 +385,39 @@ func TestSegmentWithSeveralCommandsIncludingRDBFile(t *testing.T) {
 	input := []byte(fmt.Sprintf("$%d\r\n%s", len(emptyRDB), string(emptyRDB)))
 	input = append(input, []byte("$3\r\nSET\r\n")...)
 
-	offset := 0
-	_, doneReading, parseError := parseResp(input, &offset)
+	reader := bufio.NewReader(bytes.NewReader(input))
+
+	got, parseError := readResp(reader)
 
 	if parseError != nil {
 		t.Errorf("segmentWithSeveralCommandsIncludingRDBFile() error = %v", parseError)
 		return
 	}
 
-	if doneReading {
-		t.Errorf("segmentWithSeveralCommandsIncludingRDBFile() doneReading = %v, want %v", doneReading, false)
+	if got == nil {
+		t.Errorf("segmentWithSeveralCommandsIncludingRDBFile() got = %v, want not nil", got)
 	}
 
-	_, doneReading, parseError = parseResp(input, &offset)
+	if got.queryType != RDBFile {
+		t.Errorf("segmentWithSeveralCommandsIncludingRDBFile() got = %v, want %v", got.queryType, RDBFile)
+	}
+
+	got, parseError = readResp(reader)
 	if parseError != nil {
 		t.Errorf("segmentWithSeveralCommandsIncludingRDBFile() error = %v", parseError)
 		return
 	}
 
-	if !doneReading {
-		t.Errorf("segmentWithSeveralCommandsIncludingRDBFile() doneReading = %v, want %v", doneReading, true)
+	if got == nil {
+		t.Errorf("segmentWithSeveralCommandsIncludingRDBFile() got = %v, want not nil", got)
+	}
+
+	if got.value.(string) != "SET" {
+		t.Errorf("segmentWithSeveralCommandsIncludingRDBFile() got = %v, want %v", got.value, "SET")
+	}
+
+	got, parseError = readResp(reader)
+	if got != nil {
+		t.Errorf("segmentWithSeveralCommandsIncludingRDBFile() got = %v, want nil", got)
 	}
 }
