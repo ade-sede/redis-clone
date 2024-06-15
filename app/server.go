@@ -30,6 +30,8 @@ type instanceStatus struct {
 	masterPort    int
 	dir           string
 	dbFileName    string
+	store         map[int]map[string]entry
+	activeDB      int
 }
 
 func (status *instanceStatus) findReplica(conn net.Conn) *replica {
@@ -55,8 +57,12 @@ func main() {
 	flag.StringVar(&status.dbFileName, "dbfilename", "dump.rdb", "name of the database file")
 	flag.Parse()
 
-	initStore()
-	err := initReplication(*port, errorC)
+	err := initStore()
+	if err != nil {
+		errorLogger.Fatalln(err)
+	}
+
+	err = initReplication(*port, errorC)
 	if err != nil {
 		errorLogger.Fatalln(err)
 	}

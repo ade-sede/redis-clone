@@ -11,10 +11,19 @@ type entry struct {
 	expiresAt *time.Time
 }
 
-var stringStore map[string]entry
+func initStore() error {
+	status.activeDB = 0
+	status.store = make(map[int]map[string]entry)
+	status.store[status.activeDB] = make(map[string]entry)
 
-func initStore() {
-	stringStore = make(map[string]entry)
+	if status.dbFileName != "" && status.dir != "" {
+		err := initPersistence()
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 var expiryDurationOptionNames = []string{"EX", "PX"}
@@ -71,7 +80,7 @@ func set(args []string) ([]byte, error) {
 		*expiresAt = time.Now().Add(time.Duration(duration) * durationMultiplier)
 	}
 
-	stringStore[key] = entry{value: value, expiresAt: expiresAt}
+	status.store[status.activeDB][key] = entry{value: value, expiresAt: expiresAt}
 
 	return []byte("+OK\r\n"), nil
 }
@@ -83,15 +92,24 @@ func get(args []string) ([]byte, error) {
 
 	key := args[0]
 
-	entry, ok := stringStore[key]
+	entry, ok := status.store[status.activeDB][key]
 	if !ok {
 		return []byte("$-1\r\n"), nil
 	}
 
 	if entry.expiresAt != nil && entry.expiresAt.Before(time.Now()) {
-		delete(stringStore, key)
+		delete(status.store[status.activeDB], key)
 		return []byte("$-1\r\n"), nil
 	}
 
 	return encodeBulkString(entry.value), nil
+}
+
+func selectFunc(args []string) []byte {
+	status.activeDB, _ = strconv.Atoi(args[0])
+	if _, ok := status.store[status.activeDB]; !ok {
+		status.store[status.activeDB] = make(map[string]entry)
+	}
+
+	return []byte("+OK\r\n")
 }
