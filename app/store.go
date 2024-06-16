@@ -7,15 +7,30 @@ import (
 	"time"
 )
 
-type entry struct {
+type stringEntry struct {
 	value     string
 	expiresAt *time.Time
 }
 
+// Each entry in a stream is a kv map
+// One stream contains many entries
+type stream struct {
+	entries []map[string]string
+}
+
+type database struct {
+	stringStore map[string]stringEntry
+	streamStore map[string]stream
+}
+
 func initStore() error {
 	status.activeDB = 0
-	status.store = make(map[int]map[string]entry)
-	status.store[status.activeDB] = make(map[string]entry)
+	status.databases = make(map[int]database)
+	initialDB := database{
+		stringStore: make(map[string]stringEntry),
+		streamStore: make(map[string]stream),
+	}
+	status.databases[0] = initialDB
 
 	if status.dbFileName != "" && status.dir != "" {
 		return initPersistence()
@@ -78,7 +93,7 @@ func set(args []string) ([]byte, error) {
 		*expiresAt = time.Now().Add(time.Duration(duration) * durationMultiplier)
 	}
 
-	status.store[status.activeDB][key] = entry{value: value, expiresAt: expiresAt}
+	status.databases[status.activeDB].stringStore[key] = stringEntry{value: value, expiresAt: expiresAt}
 
 	return []byte("+OK\r\n"), nil
 }
@@ -90,13 +105,13 @@ func get(args []string) ([]byte, error) {
 
 	key := args[0]
 
-	entry, ok := status.store[status.activeDB][key]
+	entry, ok := status.databases[status.activeDB].stringStore[key]
 	if !ok {
 		return []byte("$-1\r\n"), nil
 	}
 
 	if entry.expiresAt != nil && entry.expiresAt.Before(time.Now()) {
-		delete(status.store[status.activeDB], key)
+		delete(status.databases[status.activeDB].stringStore, key)
 		return []byte("$-1\r\n"), nil
 	}
 
@@ -112,8 +127,8 @@ func del(args []string) ([]byte, error) {
 
 	deleted := 0
 	for _, key := range keys {
-		if _, ok := status.store[status.activeDB][key]; ok {
-			delete(status.store[status.activeDB], key)
+		if _, ok := status.databases[status.activeDB].stringStore[key]; ok {
+			delete(status.databases[status.activeDB].stringStore, key)
 			deleted++
 		}
 	}
@@ -123,8 +138,12 @@ func del(args []string) ([]byte, error) {
 
 func selectFunc(args []string) []byte {
 	status.activeDB, _ = strconv.Atoi(args[0])
-	if _, ok := status.store[status.activeDB]; !ok {
-		status.store[status.activeDB] = make(map[string]entry)
+	if _, ok := status.databases[status.activeDB]; !ok {
+		newDB := database{
+			stringStore: make(map[string]stringEntry),
+			streamStore: make(map[string]stream),
+		}
+		status.databases[status.activeDB] = newDB
 	}
 
 	return []byte("+OK\r\n")
@@ -146,7 +165,7 @@ func keys(args []string) ([]byte, error) {
 
 	keys := make([]string, 0)
 
-	for key := range status.store[status.activeDB] {
+	for key := range status.databases[status.activeDB].stringStore {
 		if regex.MatchString(key) {
 			keys = append(keys, key)
 		}
@@ -162,7 +181,7 @@ func typeFunc(args []string) ([]byte, error) {
 
 	key := args[0]
 
-	_, ok := status.store[status.activeDB][key]
+	_, ok := status.databases[status.activeDB].stringStore[key]
 	if !ok {
 		return encodeSimpleString("none"), nil
 	}

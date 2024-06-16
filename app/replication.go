@@ -177,7 +177,7 @@ func psync(conn *connection) ([]byte, error) {
 		status.replId,
 		0))
 
-	rdbContent, err := encodeRDBFile(status.store)
+	rdbContent, err := encodeRDBFile(status.databases)
 	if err != nil {
 		return nil, err
 	}

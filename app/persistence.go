@@ -209,7 +209,7 @@ func readResizeDBSection(reader *bufio.Reader) error {
 	return nil
 }
 
-func readDatabaseEntry(reader *bufio.Reader) (string, *entry, error) {
+func readDatabaseEntry(reader *bufio.Reader) (string, *stringEntry, error) {
 	var expiresAt *time.Time
 
 	b, err := reader.Peek(1)
@@ -274,25 +274,25 @@ func readDatabaseEntry(reader *bufio.Reader) (string, *entry, error) {
 		return "", nil, err
 	}
 
-	return key, &entry{
+	return key, &stringEntry{
 		value:     value,
 		expiresAt: expiresAt,
 	}, nil
 }
 
-func readDatabaseSection(reader *bufio.Reader) (int, map[string]entry, error) {
+func readDatabaseSection(reader *bufio.Reader) (int, map[string]stringEntry, error) {
 	databaseNumber := -1
-	store := make(map[string]entry)
+	stringStore := make(map[string]stringEntry)
 
 	databaseNumber, err := readDbSelector(reader)
 	if err != nil {
-		return databaseNumber, store, err
+		return databaseNumber, stringStore, err
 	}
 
 	for {
 		b, err := reader.Peek(1)
 		if err != nil {
-			return databaseNumber, store, err
+			return databaseNumber, stringStore, err
 		}
 
 		if b[0] == 0xFF || b[0] == 0xFE {
@@ -302,19 +302,19 @@ func readDatabaseSection(reader *bufio.Reader) (int, map[string]entry, error) {
 		if b[0] == 0xFB {
 			err := readResizeDBSection(reader)
 			if err != nil {
-				return databaseNumber, store, err
+				return databaseNumber, stringStore, err
 			}
 		} else {
-			key, entry, err := readDatabaseEntry(reader)
+			key, stringEntry, err := readDatabaseEntry(reader)
 			if err != nil {
-				return databaseNumber, store, err
+				return databaseNumber, stringStore, err
 			}
 
-			store[key] = *entry
+			stringStore[key] = *stringEntry
 		}
 	}
 
-	return databaseNumber, store, nil
+	return databaseNumber, stringStore, nil
 }
 
 func readRDBFile(reader *bufio.Reader) error {
@@ -354,12 +354,14 @@ func readRDBFile(reader *bufio.Reader) error {
 
 			metadata[key] = value
 		} else if b[0] == 0xFE {
-			dbNumber, db, err := readDatabaseSection(reader)
+			dbNumber, stringStore, err := readDatabaseSection(reader)
 			if err != nil {
 				return err
 			}
 
-			status.store[dbNumber] = db
+			currentDB := status.databases[dbNumber]
+			currentDB.stringStore = stringStore
+			status.databases[dbNumber] = currentDB
 		} else if b[0] == 0xFF {
 			// TODO: checksum
 			reader.Discard(1)
@@ -384,7 +386,7 @@ func encodeRDBString(s string) []byte {
 	return buf
 }
 
-func encodeRDBFile(store map[int]map[string]entry) ([]byte, error) {
+func encodeRDBFile(store map[int]database) ([]byte, error) {
 	buf := make([]byte, 0)
 
 	buf = append(buf, []byte("REDIS")...)
@@ -399,14 +401,14 @@ func encodeRDBFile(store map[int]map[string]entry) ([]byte, error) {
 			return nil, fmt.Errorf("Invalid database number: %d. Only support [0:10]", dbNumber)
 		}
 
-		if len(db) == 0 {
+		if len(db.stringStore) == 0 {
 			continue
 		}
 
 		buf = append(buf, []byte{0xFE}...)
 		buf = append(buf, byte(dbNumber))
 
-		for key, entry := range db {
+		for key, entry := range db.stringStore {
 			if entry.expiresAt != nil && entry.expiresAt.After(time.Now()) {
 				timestamp := make([]byte, 8)
 
@@ -438,7 +440,7 @@ func save() ([]byte, error) {
 		return nil, err
 	}
 
-	buf, err := encodeRDBFile(status.store)
+	buf, err := encodeRDBFile(status.databases)
 	if err != nil {
 		return nil, err
 	}

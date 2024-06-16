@@ -412,9 +412,14 @@ func helperArrayEquality(t *testing.T, arr []*query, expected []interface{}) {
 var EMPTY_RDB_FILE = generateEmptyRDBFile()
 
 func generateEmptyRDBFile() []byte {
-	emptyStore := make(map[int]map[string]entry)
-	emptyStore[0] = make(map[string]entry)
+	databases := make(map[int]database)
+	db := database{
+		stringStore: make(map[string]stringEntry),
+		streamStore: make(map[string]stream),
+	}
 
-	file, _ := encodeRDBFile(emptyStore)
+	databases[0] = db
+
+	file, _ := encodeRDBFile(databases)
 	return file
 }

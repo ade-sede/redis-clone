@@ -30,8 +30,12 @@ type instanceStatus struct {
 	masterPort    int
 	dir           string
 	dbFileName    string
-	store         map[int]map[string]entry
-	activeDB      int
+
+	// One redis instance can host several databases
+	// Each database has several stores.
+	// One per data type.
+	activeDB  int
+	databases map[int]database
 }
 
 func (status *instanceStatus) findReplica(conn net.Conn) *replica {
