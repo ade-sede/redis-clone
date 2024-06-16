@@ -1,12 +1,12 @@
-A naive Redis clone, following ["codecrafters's Build Your Own Redis" Challenge](https://codecrafters.io/challenges/redis).
+A naive Redis clone, following Codecrafter's ["Build Your Own Redis" Challenge](https://codecrafters.io/challenges/redis).
 
 # Scope
 
-- strings only
-- replication
-- persistence
-- fullresync (RDB file over the network)
-- basic commands such as `SET`, `DEL`, `GET`, `WAIT`, `KEYS`, etc ...
+- Strings only
+- Replication
+- Persistence
+- Fullresync (RDB file over the network)
+- Basic commands such as `SET`, `DEL`, `GET`, `WAIT`, `KEYS`, etc ...
 
 This is a toy for educational purposes only.  
 There is almost no error handling.
