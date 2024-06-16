@@ -359,7 +359,8 @@ func readRDBFile(reader *bufio.Reader) error {
 
 			status.store[dbNumber] = db
 		} else if b[0] == 0xFF {
-			// TODO checksum
+			// TODO: checksum
+			reader.Discard(1)
 			return nil
 		} else {
 			return fmt.Errorf("Unexpected byte: %02x", b[0])
