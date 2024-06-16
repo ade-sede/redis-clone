@@ -177,9 +177,11 @@ func psync(conn *connection) ([]byte, error) {
 		status.replId,
 		0))
 
-	emptyRDB, _ := hex.DecodeString(EMPTY_RDB_FILE)
-
-	RDB := []byte(fmt.Sprintf("$%d\r\n%s", len(emptyRDB), string(emptyRDB)))
+	rdbContent, err := encodeRDBFile(status.store)
+	if err != nil {
+		return nil, err
+	}
+	RDB := []byte(fmt.Sprintf("$%d\r\n%s", len(rdbContent), string(rdbContent)))
 
 	response := make([]byte, 0)
 	response = append(response, fullResyncNotification...)

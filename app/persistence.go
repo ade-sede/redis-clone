@@ -14,6 +14,23 @@ import (
 	"time"
 )
 
+var ErrMissingRDBFile = fmt.Errorf("RDB file not found")
+
+func initPersistence() error {
+	fileName := fmt.Sprintf("%s/%s", status.dir, status.dbFileName)
+	file, err := os.Open(fileName)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%w: %s", ErrMissingRDBFile, fileName)
+		}
+		return err
+	}
+
+	reader := bufio.NewReader(file)
+	err = readRDBFile(reader)
+	return err
+}
+
 func config(args []string) ([]byte, error) {
 	response := make([]string, 0)
 
@@ -350,19 +367,58 @@ func readRDBFile(reader *bufio.Reader) error {
 	}
 }
 
-var ErrMissingRDBFile = fmt.Errorf("RDB file not found")
+func encodeRDBString(s string) []byte {
+	buf := make([]byte, 0)
+	length := len(s)
 
-func initPersistence() error {
-	fileName := fmt.Sprintf("%s/%s", status.dir, status.dbFileName)
-	file, err := os.Open(fileName)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("%w: %s", ErrMissingRDBFile, fileName)
-		}
-		return err
+	if length > 63 {
+		panic("String length is too long. Only the simplest string encoding is enabled at the moment.")
 	}
 
-	reader := bufio.NewReader(file)
-	err = readRDBFile(reader)
-	return err
+	buf = append(buf, byte(length))
+	buf = append(buf, []byte(s)...)
+
+	return buf
+}
+
+func encodeRDBFile(store map[int]map[string]entry) ([]byte, error) {
+	buf := make([]byte, 0)
+
+	buf = append(buf, []byte("REDIS")...)
+	buf = append(buf, []byte("0009")...)
+	buf = append(buf, []byte{0xFA}...)
+	buf = append(buf, encodeRDBString("test-metadata-key")...)
+	buf = append(buf, encodeRDBString("test-metadata-value")...)
+
+	for dbNumber, db := range store {
+		if dbNumber > 10 || dbNumber < 0 {
+			return nil, fmt.Errorf("Invalid database number: %d. Only support [0:10]", dbNumber)
+		}
+
+		if len(db) == 0 {
+			continue
+		}
+
+		buf = append(buf, []byte{0xFE}...)
+		buf = append(buf, byte(dbNumber))
+
+		for key, entry := range db {
+			if entry.expiresAt != nil && entry.expiresAt.After(time.Now()) {
+				timestamp := make([]byte, 8)
+
+				buf = append(buf, []byte{0xFC}...)
+				binary.LittleEndian.PutUint64(timestamp, uint64(entry.expiresAt.Unix()))
+				buf = append(buf, timestamp...)
+			}
+
+			buf = append(buf, []byte{0x00}...)
+			buf = append(buf, encodeRDBString(key)...)
+			buf = append(buf, encodeRDBString(entry.value)...)
+		}
+	}
+
+	buf = append(buf, []byte{0xFF}...)
+	checksum := crc64(buf)
+	binary.LittleEndian.AppendUint64(buf, checksum)
+	return buf, nil
 }

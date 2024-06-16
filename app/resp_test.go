@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"encoding/hex"
 	"fmt"
 	"testing"
 )
@@ -259,44 +258,6 @@ func TestParseNestedArray(t *testing.T) {
 	}
 }
 
-func helperArrayEquality(t *testing.T, arr []*query, expected []interface{}) {
-	if len(arr) != len(expected) {
-		t.Errorf("helperArrayEquality() = %v, want %v", len(arr), len(expected))
-	}
-
-	for i, v := range arr {
-		if v.queryType == Integer {
-			num, err := v.asInteger()
-			if err != nil {
-				t.Errorf("helperArrayEquality() error = %v", err)
-			}
-
-			if num != expected[i] {
-				t.Errorf("helperArrayEquality() = %v, want %v", arr, expected)
-			}
-		} else if v.queryType == BulkString || v.queryType == SimpleError || v.queryType == SimpleString {
-			str, err := v.asString()
-			if err != nil {
-				t.Errorf("helperArrayEquality() error = %v", err)
-			}
-
-			if str != expected[i] {
-				t.Errorf("helperArrayEquality() = %v, want %v", arr, expected)
-			}
-		} else if v.queryType == Array {
-			nestedArr, err := v.asArray()
-
-			if err != nil {
-				t.Errorf("helperArrayEquality() error = %v", err)
-			}
-
-			helperArrayEquality(t, nestedArr, expected[i].([]interface{}))
-		} else {
-			t.Errorf("helperArrayEquality() unexpected query type: %v", v.queryType)
-		}
-	}
-}
-
 func TestSegmentWithSeveralCommands(t *testing.T) {
 	input := "$3\r\nSET\r\n$3\r\nkey\r\n"
 
@@ -338,13 +299,7 @@ func TestSegmentWithSeveralCommands(t *testing.T) {
 }
 
 func TestParseRdbFile(t *testing.T) {
-	emptyRDB, err := hex.DecodeString(EMPTY_RDB_FILE)
-	if err != nil {
-		t.Errorf("parseRdbFile() error = %v", err)
-		return
-	}
-
-	input := []byte(fmt.Sprintf("$%d\r\n%s", len(emptyRDB), string(emptyRDB)))
+	input := []byte(fmt.Sprintf("$%d\r\n%s", len(EMPTY_RDB_FILE), string(EMPTY_RDB_FILE)))
 	reader := bufio.NewReader(bytes.NewReader(input))
 	got, parseError := readResp(reader)
 
@@ -363,11 +318,11 @@ func TestParseRdbFile(t *testing.T) {
 
 	val, ok := got.value.([]byte)
 	if !ok {
-		t.Errorf("parseRdbFile() error = %v", err)
+		t.Errorf("parseRdbFile() val is not []byte")
 	}
 
-	if !bytes.Equal(val, emptyRDB) {
-		t.Errorf("parseRdbFile() got = %v, want %v", val, emptyRDB)
+	if !bytes.Equal(val, EMPTY_RDB_FILE) {
+		t.Errorf("parseRdbFile() got = %v, want %v", val, EMPTY_RDB_FILE)
 	}
 
 	if !bytes.Equal(got.raw(), input) {
@@ -376,13 +331,7 @@ func TestParseRdbFile(t *testing.T) {
 }
 
 func TestSegmentWithSeveralCommandsIncludingRDBFile(t *testing.T) {
-	emptyRDB, err := hex.DecodeString(EMPTY_RDB_FILE)
-	if err != nil {
-		t.Errorf("segmentWithSeveralCommandsIncludingRDBFile() error = %v", err)
-		return
-	}
-
-	input := []byte(fmt.Sprintf("$%d\r\n%s", len(emptyRDB), string(emptyRDB)))
+	input := []byte(fmt.Sprintf("$%d\r\n%s", len(EMPTY_RDB_FILE), string(EMPTY_RDB_FILE)))
 	input = append(input, []byte("$3\r\nSET\r\n")...)
 
 	reader := bufio.NewReader(bytes.NewReader(input))
@@ -420,4 +369,52 @@ func TestSegmentWithSeveralCommandsIncludingRDBFile(t *testing.T) {
 	if got != nil {
 		t.Errorf("segmentWithSeveralCommandsIncludingRDBFile() got = %v, want nil", got)
 	}
+}
+
+func helperArrayEquality(t *testing.T, arr []*query, expected []interface{}) {
+	if len(arr) != len(expected) {
+		t.Errorf("helperArrayEquality() = %v, want %v", len(arr), len(expected))
+	}
+
+	for i, v := range arr {
+		if v.queryType == Integer {
+			num, err := v.asInteger()
+			if err != nil {
+				t.Errorf("helperArrayEquality() error = %v", err)
+			}
+
+			if num != expected[i] {
+				t.Errorf("helperArrayEquality() = %v, want %v", arr, expected)
+			}
+		} else if v.queryType == BulkString || v.queryType == SimpleError || v.queryType == SimpleString {
+			str, err := v.asString()
+			if err != nil {
+				t.Errorf("helperArrayEquality() error = %v", err)
+			}
+
+			if str != expected[i] {
+				t.Errorf("helperArrayEquality() = %v, want %v", arr, expected)
+			}
+		} else if v.queryType == Array {
+			nestedArr, err := v.asArray()
+
+			if err != nil {
+				t.Errorf("helperArrayEquality() error = %v", err)
+			}
+
+			helperArrayEquality(t, nestedArr, expected[i].([]interface{}))
+		} else {
+			t.Errorf("helperArrayEquality() unexpected query type: %v", v.queryType)
+		}
+	}
+}
+
+var EMPTY_RDB_FILE = generateEmptyRDBFile()
+
+func generateEmptyRDBFile() []byte {
+	emptyStore := make(map[int]map[string]entry)
+	emptyStore[0] = make(map[string]entry)
+
+	file, _ := encodeRDBFile(emptyStore)
+	return file
 }
