@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -17,10 +18,7 @@ func initStore() error {
 	status.store[status.activeDB] = make(map[string]entry)
 
 	if status.dbFileName != "" && status.dir != "" {
-		err := initPersistence()
-		if err != nil {
-			return err
-		}
+		return initPersistence()
 	}
 
 	return nil
@@ -112,4 +110,29 @@ func selectFunc(args []string) []byte {
 	}
 
 	return []byte("+OK\r\n")
+}
+
+func keys(args []string) ([]byte, error) {
+	if len(args) != 1 {
+		return nil, ErrRespWrongNumberOfArguments
+	}
+
+	pattern := args[0]
+	if pattern == "*" {
+		pattern = ".*"
+	}
+	regex, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	keys := make([]string, 0)
+
+	for key := range status.store[status.activeDB] {
+		if regex.MatchString(key) {
+			keys = append(keys, key)
+		}
+	}
+
+	return encodeStringArray(keys), nil
 }

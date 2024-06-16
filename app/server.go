@@ -59,7 +59,11 @@ func main() {
 
 	err := initStore()
 	if err != nil {
-		errorLogger.Fatalln(err)
+		if errors.Is(err, ErrMissingRDBFile) {
+			errorLogger.Println(err)
+		} else {
+			errorLogger.Fatalln(err)
+		}
 	}
 
 	err = initReplication(*port, errorC)

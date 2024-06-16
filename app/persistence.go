@@ -350,10 +350,15 @@ func readRDBFile(reader *bufio.Reader) error {
 	}
 }
 
+var ErrMissingRDBFile = fmt.Errorf("RDB file not found")
+
 func initPersistence() error {
 	fileName := fmt.Sprintf("%s/%s", status.dir, status.dbFileName)
 	file, err := os.Open(fileName)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%w: %s", ErrMissingRDBFile, fileName)
+		}
 		return err
 	}
 
