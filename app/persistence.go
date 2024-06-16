@@ -217,6 +217,8 @@ func readDatabaseEntry(reader *bufio.Reader) (string, *entry, error) {
 		return "", nil, err
 	}
 
+	// TODO discard expired entries
+
 	if b[0] == 0xFD { // expiry timestamp in seconds, 4 bytes unsigned int
 		reader.Discard(1)
 		expiryTime := make([]byte, 4)

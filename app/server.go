@@ -152,7 +152,7 @@ func handleConnection(conn *connection, connectionToMaster bool, errorC chan err
 			rawQuery := query.raw()
 			status.replOffset += len(rawQuery)
 
-			if command == SET {
+			if command == SET || command == DEL {
 				go replicate(rawQuery)
 			}
 		}

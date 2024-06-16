@@ -24,6 +24,7 @@ const (
 	CONFIG
 	KEYS
 	SAVE
+	DEL
 )
 
 func ping() []byte {
@@ -157,6 +158,11 @@ func execute(conn *connection, query *query) ([]byte, command, error) {
 	if strings.EqualFold(command, "SAVE") {
 		response, err := save()
 		return response, SAVE, err
+	}
+
+	if strings.EqualFold(command, "DEL") {
+		response, err := del(args)
+		return response, DEL, err
 	}
 
 	return nil, UNKNOWN, fmt.Errorf("%w unknown command '%s'", ErrRespSimpleError, command)

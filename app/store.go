@@ -103,6 +103,24 @@ func get(args []string) ([]byte, error) {
 	return encodeBulkString(entry.value), nil
 }
 
+func del(args []string) ([]byte, error) {
+	if len(args) < 1 {
+		return nil, ErrRespWrongNumberOfArguments
+	}
+
+	keys := args
+
+	deleted := 0
+	for _, key := range keys {
+		if _, ok := status.store[status.activeDB][key]; ok {
+			delete(status.store[status.activeDB], key)
+			deleted++
+		}
+	}
+
+	return encodeInteger(deleted), nil
+}
+
 func selectFunc(args []string) []byte {
 	status.activeDB, _ = strconv.Atoi(args[0])
 	if _, ok := status.store[status.activeDB]; !ok {
