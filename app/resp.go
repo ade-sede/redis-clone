@@ -348,7 +348,7 @@ func readResp(reader *bufio.Reader) (*query, error) {
 			return nil, err
 		}
 	default:
-		return nil, fmt.Errorf("Unexpected character `%c`", prefix)
+		return nil, fmt.Errorf("Unexpected character `%c`(hex %02x)", prefix, prefix)
 	}
 
 	return q, nil

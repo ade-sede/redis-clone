@@ -386,9 +386,10 @@ func encodeRDBFile(store map[int]map[string]entry) ([]byte, error) {
 
 	buf = append(buf, []byte("REDIS")...)
 	buf = append(buf, []byte("0009")...)
+
 	buf = append(buf, []byte{0xFA}...)
-	buf = append(buf, encodeRDBString("test-metadata-key")...)
-	buf = append(buf, encodeRDBString("test-metadata-value")...)
+	buf = append(buf, encodeRDBString("redis-version")...)
+	buf = append(buf, encodeRDBString("ade-sede's custom redis")...)
 
 	for dbNumber, db := range store {
 		if dbNumber > 10 || dbNumber < 0 {
@@ -419,6 +420,30 @@ func encodeRDBFile(store map[int]map[string]entry) ([]byte, error) {
 
 	buf = append(buf, []byte{0xFF}...)
 	checksum := crc64(buf)
-	binary.LittleEndian.AppendUint64(buf, checksum)
+	buf = binary.LittleEndian.AppendUint64(buf, checksum)
 	return buf, nil
+}
+
+func save() ([]byte, error) {
+	if status.dbFileName == "" || status.dir == "" {
+		return nil, fmt.Errorf("Database file name or directory is not set")
+	}
+
+	fileName := fmt.Sprintf("%s/%s", status.dir, status.dbFileName)
+	file, err := os.Create(fileName)
+	if err != nil {
+		return nil, err
+	}
+
+	buf, err := encodeRDBFile(status.store)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = file.Write(buf)
+	if err != nil {
+		return nil, err
+	}
+
+	return encodeSimpleString("OK"), nil
 }

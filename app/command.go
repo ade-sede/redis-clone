@@ -21,6 +21,7 @@ const (
 	SELECT
 	CONFIG
 	KEYS
+	SAVE
 )
 
 func ping() []byte {
@@ -135,6 +136,11 @@ func execute(conn *connection, query *query) ([]byte, command, error) {
 	if strings.EqualFold(command, "KEYS") {
 		response, err := keys(args)
 		return response, KEYS, err
+	}
+
+	if strings.EqualFold(command, "SAVE") {
+		response, err := save()
+		return response, SAVE, err
 	}
 
 	return nil, UNKNOWN, fmt.Errorf("%w unknown command '%s'", ErrRespSimpleError, command)
