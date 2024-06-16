@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"strings"
 )
@@ -72,6 +74,20 @@ master_repl_offset:%d`,
 }
 
 func execute(conn *connection, query *query) ([]byte, command, error) {
+	if query.queryType == RDBFile {
+		fileContent := query.value.([]byte)
+		reader := bufio.NewReader(bytes.NewReader(fileContent))
+
+		// TODO dumb existing store
+		// return new store rather than assigning directly to global
+		err := readRDBFile(reader)
+		if err != nil {
+			return nil, UNKNOWN, err
+		}
+
+		return nil, UNKNOWN, nil
+	}
+
 	if query.queryType != Array {
 		return nil, UNKNOWN, fmt.Errorf("Can't execute of query type: %d. Only Arrays are supported at this time (type %d)", query.queryType, Array)
 	}

@@ -60,9 +60,9 @@ func initReplication(listeningPort int, errorC chan error) error {
 		port:    status.masterPort,
 	}
 
-	go handleConnection(&replicationConn, true, errorC)
-
 	handshake(&replicationConn, listeningPort)
+
+	go handleConnection(&replicationConn, true, errorC)
 
 	return nil
 }
