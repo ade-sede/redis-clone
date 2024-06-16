@@ -25,6 +25,7 @@ const (
 	KEYS
 	SAVE
 	DEL
+	TYPE
 )
 
 func ping() []byte {
@@ -163,6 +164,11 @@ func execute(conn *connection, query *query) ([]byte, command, error) {
 	if strings.EqualFold(command, "DEL") {
 		response, err := del(args)
 		return response, DEL, err
+	}
+
+	if strings.EqualFold(command, "TYPE") {
+		response, err := typeFunc(args)
+		return response, TYPE, err
 	}
 
 	return nil, UNKNOWN, fmt.Errorf("%w unknown command '%s'", ErrRespSimpleError, command)

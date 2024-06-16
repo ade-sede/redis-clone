@@ -154,3 +154,18 @@ func keys(args []string) ([]byte, error) {
 
 	return encodeStringArray(keys), nil
 }
+
+func typeFunc(args []string) ([]byte, error) {
+	if len(args) != 1 {
+		return nil, ErrRespWrongNumberOfArguments
+	}
+
+	key := args[0]
+
+	_, ok := status.store[status.activeDB][key]
+	if !ok {
+		return encodeSimpleString("none"), nil
+	}
+
+	return encodeSimpleString("string"), nil
+}
