@@ -183,9 +183,13 @@ func psync(conn *connection) ([]byte, error) {
 	}
 	RDB := []byte(fmt.Sprintf("$%d\r\n%s", len(rdbContent), string(rdbContent)))
 
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		conn.handler.Write(RDB)
+	}()
+
 	response := make([]byte, 0)
 	response = append(response, fullResyncNotification...)
-	response = append(response, RDB...)
 
 	return response, nil
 }

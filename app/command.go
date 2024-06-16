@@ -78,7 +78,7 @@ func execute(conn *connection, query *query) ([]byte, command, error) {
 		fileContent := query.value.([]byte)
 		reader := bufio.NewReader(bytes.NewReader(fileContent))
 
-		// TODO dumb existing store
+		// TODO dump existing store
 		// return new store rather than assigning directly to global
 		err := readRDBFile(reader)
 		if err != nil {
