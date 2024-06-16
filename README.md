@@ -15,7 +15,7 @@ There is almost no error handling.
 
 ```bash 
 # Spawn a first instance
-$> ./spawn_redis_server.sh --port 6666 --dir (pwd) --dbfilename dump.rdb
+$> ./spawn_redis_server.sh --port 6666 --dir $(pwd) --dbfilename dump.rdb
 
 # Send data
 $> redis-cli -p 6666 set mykey myvalue
@@ -31,7 +31,7 @@ $> redis-cli -p 6666 save
 
 # Spawn a second instance
 # As soon as it starts, it completes a handshake 
-$> ./spawn_redis_server.sh --port 6667 --dir (pwd) --dbfilename dump.rdb --replicaof "localhost 6666"
+$> ./spawn_redis_server.sh --port 6667 --dir $(pwd) --dbfilename dump.rdb --replicaof "localhost 6666"
 
 # Any further data sent to the first instance will be replicated to the second one.
 $> redis-cli -p 6666 set anotherkey anothervalue
