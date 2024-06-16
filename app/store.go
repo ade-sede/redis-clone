@@ -181,10 +181,46 @@ func typeFunc(args []string) ([]byte, error) {
 
 	key := args[0]
 
-	_, ok := status.databases[status.activeDB].stringStore[key]
-	if !ok {
-		return encodeSimpleString("none"), nil
+	_, inStringStore := status.databases[status.activeDB].stringStore[key]
+	_, inStreamStore := status.databases[status.activeDB].streamStore[key]
+
+	if inStringStore {
+		return encodeSimpleString("string"), nil
 	}
 
-	return encodeSimpleString("string"), nil
+	if inStreamStore {
+		return encodeSimpleString("stream"), nil
+	}
+
+	return encodeSimpleString("none"), nil
+}
+
+func xadd(args []string) ([]byte, error) {
+	var str stream
+	entry := make(map[string]string)
+
+	if len(args) < 3 {
+		return nil, ErrRespWrongNumberOfArguments
+	}
+
+	key := args[0]
+	id := args[1]
+	kv := args[2:]
+
+	str, ok := status.databases[status.activeDB].streamStore[key]
+	if !ok {
+		str = stream{
+			entries: make([]map[string]string, 1),
+		}
+	}
+
+	entry["id"] = id
+	for i := 0; i+1 < len(kv); i += 2 {
+		entry[kv[i]] = kv[i+1]
+	}
+
+	str.entries = append(str.entries, entry)
+	status.databases[status.activeDB].streamStore[key] = str
+
+	return encodeBulkString(id), nil
 }

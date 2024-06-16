@@ -26,6 +26,7 @@ const (
 	SAVE
 	DEL
 	TYPE
+	XADD
 )
 
 func ping() []byte {
@@ -169,6 +170,11 @@ func execute(conn *connection, query *query) ([]byte, command, error) {
 	if strings.EqualFold(command, "TYPE") {
 		response, err := typeFunc(args)
 		return response, TYPE, err
+	}
+
+	if strings.EqualFold(command, "XADD") {
+		response, err := xadd(args)
+		return response, XADD, err
 	}
 
 	return nil, UNKNOWN, fmt.Errorf("%w unknown command '%s'", ErrRespSimpleError, command)
