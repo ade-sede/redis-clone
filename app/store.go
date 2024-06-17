@@ -198,52 +198,77 @@ func typeFunc(args []string) ([]byte, error) {
 	return encodeSimpleString("none"), nil
 }
 
-func parseStreamEntryId(id string) (milliseconds int, seq int, err error) {
+func parseStreamEntryId(id string) (int, int, error) {
+	milliseconds := -1
+	seq := -1
+
 	parts := strings.Split(id, "-")
 
-	milliseconds, err = strconv.Atoi(parts[0])
+	milliseconds, err := strconv.Atoi(parts[0])
 	if err != nil {
-		return milliseconds, seq, err
+		if parts[0] == "*" {
+			milliseconds = -1
+		} else {
+			return -1, -1, err
+		}
 	}
 
-	if len(parts) != 2 {
-		return milliseconds, -1, nil
-	}
-
-	seq, err = strconv.Atoi(parts[1])
-	if err != nil {
-		return milliseconds, seq, err
+	if len(parts) == 2 {
+		seq, err = strconv.Atoi(parts[1])
+		if err != nil {
+			if parts[1] == "*" {
+				seq = -1
+			} else {
+				return milliseconds, -1, err
+			}
+		}
 	}
 
 	return milliseconds, seq, nil
 }
 
+// An ID is <milliseconds>-<sequenceNumber>
+// ID of later entries must be superior to id of previous entries
+// - Higher timestamp
+// - If same timestamp, higher seq
+// If `sequenceNumber` is `*` it is auto generated
+// - If same timestamp, previous sequence number + 1
+// - Else 0 (note, 0-0 is illegal. Works out of the box because we use 0-0 as default)
+// TODO refactor, clear code and remove comment
 func validateStreamEntryId(newId string, lastId string) (string, error) {
-	newTimestamp, newSeqId, err := parseStreamEntryId(newId)
+	newMs, newSeq, err := parseStreamEntryId(newId)
 	if err != nil {
 		return "", err
 	}
 
-	if newSeqId == 0 {
+	if newMs == 0 && newSeq == 0 {
 		return "", fmt.Errorf("%w The ID specified in XADD must be greater than 0-0", ErrRespSimpleError)
 	}
 
-	lastTimestamp, lastSeqId, err := parseStreamEntryId(lastId)
+	lastMs, lastSeq, err := parseStreamEntryId(lastId)
 	if err != nil {
 		return "", err
 	}
 
-	if newTimestamp < lastTimestamp {
+	if newSeq == -1 {
+		if newMs == lastMs {
+			newSeq = lastSeq + 1
+		} else {
+			newSeq = 0
+		}
+	}
+
+	if newMs < lastMs {
 		return "", fmt.Errorf("%w The ID specified in XADD is equal or smaller than the target stream top item", ErrRespSimpleError)
 	}
 
-	if newTimestamp == lastTimestamp {
-		if newSeqId <= lastSeqId {
+	if newMs == lastMs {
+		if newSeq <= lastSeq {
 			return "", fmt.Errorf("%w The ID specified in XADD is equal or smaller than the target stream top item", ErrRespSimpleError)
 		}
 	}
 
-	return newId, nil
+	return fmt.Sprintf("%d-%d", newMs, newSeq), nil
 }
 
 func xadd(args []string) ([]byte, error) {
@@ -279,8 +304,8 @@ func xadd(args []string) ([]byte, error) {
 	}
 
 	stream.entries = append(stream.entries, entry)
-	stream.lastId = id
+	stream.lastId = validatedId
 	status.databases[status.activeDB].streamStore[key] = stream
 
-	return encodeBulkString(id), nil
+	return encodeBulkString(validatedId), nil
 }
