@@ -30,8 +30,7 @@ type database struct {
 func initStore() error {
 	status.activeDB = 0
 	status.databases = make(map[int]database)
-	initialDB := database{
-		stringStore: make(map[string]stringEntry),
+	initialDB := database{stringStore: make(map[string]stringEntry),
 		streamStore: make(map[string]streamEntry),
 	}
 	status.databases[0] = initialDB
@@ -363,9 +362,11 @@ func xrange(args []string) ([]byte, error) {
 			return nil, err
 		}
 
-		if entryMs >= startMs && entryMs <= endMs && entrySeq >= startSeq && entrySeq <= endSeq {
+		if (entryMs > startMs || (entryMs == startMs && entrySeq >= startSeq)) &&
+			(entryMs < endMs || (entryMs == endMs && entrySeq <= endSeq)) {
 			capturedEntries = append(capturedEntries, entry)
 		}
+
 	}
 
 	// Each entry is returned as an array of two elements
@@ -417,4 +418,114 @@ func xrange(args []string) ([]byte, error) {
 
 	response := encodeRespArray(allRespEncodedEntries)
 	return response, nil
+}
+
+func xread(args []string) ([]byte, error) {
+	if len(args) < 3 {
+		return nil, ErrRespWrongNumberOfArguments
+	}
+
+	var streamArgs []string
+
+	for i, arg := range args {
+		if arg == "streams" {
+			streamArgs = args[i+1:]
+			break
+		}
+	}
+
+	if len(streamArgs)%2 != 0 {
+		return nil, ErrRespWrongNumberOfArguments
+	}
+
+	allCapturedEntries := make(map[string][]map[string]string)
+
+	for i := 0; i < len(streamArgs)/2; i++ {
+		key := streamArgs[i]
+		id := streamArgs[i+(len(streamArgs)/2)]
+		stream, ok := status.databases[status.activeDB].streamStore[key]
+		if !ok {
+			return nil, fmt.Errorf("%w no stream for key %s", ErrRespSimpleError, key)
+		}
+
+		cutoffMs, cutoffSeq, err := parseStreamEntryId(id)
+		if err != nil {
+			return nil, err
+		}
+
+		capturedEntries := make([]map[string]string, 0)
+
+		for _, entry := range stream.entries {
+			entryId := entry["id"]
+			entryMs, entrySeq, err := parseStreamEntryId(entryId)
+			if err != nil {
+				return nil, err
+			}
+
+			if entryMs > cutoffMs || (entryMs == cutoffMs && entrySeq > cutoffSeq) {
+				capturedEntries = append(capturedEntries, entry)
+			}
+		}
+
+		allCapturedEntries[key] = capturedEntries
+	}
+
+	// [
+	//   [
+	//     "stream_key",
+	//     [
+	//       [
+	//         "0-1",
+	//         [
+	//           "foo",
+	//           "bar"
+	//         ]
+	//       ]
+	//     ]
+	//   ],
+	//   [
+	//     "other_stream_key",
+	//     [
+	//       [
+	//         "0-2",
+	//         [
+	//           "bar",
+	//           "baz"
+	//         ]
+	//       ]
+	//     ]
+	//   ]
+	// ]
+
+	allStreams := make([][]byte, 0)
+	for streamKey, capturedEntries := range allCapturedEntries {
+		encodedStreamKey := encodeRespBulkString(streamKey)
+
+		allEncodedEntriesForKey := make([][]byte, 0)
+		for _, entry := range capturedEntries {
+			encodedId := encodeRespBulkString(entry["id"])
+
+			allKVs := make([][]byte, 0)
+			for k, v := range entry {
+				if k == "id" {
+					continue
+				}
+
+				key := encodeRespBulkString(k)
+				value := encodeRespBulkString(v)
+
+				allKVs = append(allKVs, key)
+				allKVs = append(allKVs, value)
+			}
+
+			encodedKvArray := encodeRespArray(allKVs)
+			encodedEntry := encodeRespArray([][]byte{encodedId, encodedKvArray})
+			allEncodedEntriesForKey = append(allEncodedEntriesForKey, encodedEntry)
+		}
+
+		encodedStream := encodeRespArray([][]byte{encodedStreamKey, encodeRespArray(allEncodedEntriesForKey)})
+		allStreams = append(allStreams, encodedStream)
+	}
+
+	return encodeRespArray(allStreams), nil
 }

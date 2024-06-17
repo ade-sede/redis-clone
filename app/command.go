@@ -28,6 +28,7 @@ const (
 	TYPE
 	XADD
 	XRANGE
+	XREAD
 )
 
 func ping() []byte {
@@ -81,9 +82,7 @@ func execute(conn *connection, query *query) ([]byte, command, error) {
 	if query.queryType == RDBFile {
 		fileContent := query.value.([]byte)
 		reader := bufio.NewReader(bytes.NewReader(fileContent))
-
-		// TODO dump existing store
-		// return new store rather than assigning directly to global
+		// TODO dump existing store return new store rather than assigning directly to global
 		err := readRDBFile(reader)
 		if err != nil {
 			return nil, UNKNOWN, err
@@ -181,6 +180,11 @@ func execute(conn *connection, query *query) ([]byte, command, error) {
 	if strings.EqualFold(command, "xrange") {
 		response, err := xrange(args)
 		return response, XRANGE, err
+	}
+
+	if strings.EqualFold(command, "xread") {
+		response, err := xread(args)
+		return response, XREAD, err
 	}
 
 	return nil, UNKNOWN, fmt.Errorf("%w unknown command '%s'", ErrRespSimpleError, command)
