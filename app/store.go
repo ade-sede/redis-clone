@@ -250,6 +250,10 @@ func validateStreamEntryId(newId string, lastId string) (string, error) {
 		return "", err
 	}
 
+	if newMs == -1 {
+		newMs = int(time.Now().UnixMilli())
+	}
+
 	if newSeq == -1 {
 		if newMs == lastMs {
 			newSeq = lastSeq + 1
