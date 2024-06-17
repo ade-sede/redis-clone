@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -12,15 +13,17 @@ type stringEntry struct {
 	expiresAt *time.Time
 }
 
-// Each entry in a stream is a kv map
-// One stream contains many entries
-type stream struct {
+// A stream is described by a key.
+// It contains a list of entries.
+// Each entry in a stream is a KV store
+type streamEntry struct {
 	entries []map[string]string
+	lastId  string
 }
 
 type database struct {
 	stringStore map[string]stringEntry
-	streamStore map[string]stream
+	streamStore map[string]streamEntry
 }
 
 func initStore() error {
@@ -28,7 +31,7 @@ func initStore() error {
 	status.databases = make(map[int]database)
 	initialDB := database{
 		stringStore: make(map[string]stringEntry),
-		streamStore: make(map[string]stream),
+		streamStore: make(map[string]streamEntry),
 	}
 	status.databases[0] = initialDB
 
@@ -141,7 +144,7 @@ func selectFunc(args []string) []byte {
 	if _, ok := status.databases[status.activeDB]; !ok {
 		newDB := database{
 			stringStore: make(map[string]stringEntry),
-			streamStore: make(map[string]stream),
+			streamStore: make(map[string]streamEntry),
 		}
 		status.databases[status.activeDB] = newDB
 	}
@@ -195,8 +198,57 @@ func typeFunc(args []string) ([]byte, error) {
 	return encodeSimpleString("none"), nil
 }
 
+func parseStreamEntryId(id string) (milliseconds int, seq int, err error) {
+	parts := strings.Split(id, "-")
+
+	milliseconds, err = strconv.Atoi(parts[0])
+	if err != nil {
+		return milliseconds, seq, err
+	}
+
+	if len(parts) != 2 {
+		return milliseconds, -1, nil
+	}
+
+	seq, err = strconv.Atoi(parts[1])
+	if err != nil {
+		return milliseconds, seq, err
+	}
+
+	return milliseconds, seq, nil
+}
+
+func validateStreamEntryId(newId string, lastId string) (string, error) {
+	newTimestamp, newSeqId, err := parseStreamEntryId(newId)
+	if err != nil {
+		return "", err
+	}
+
+	if newSeqId == 0 {
+		return "", fmt.Errorf("%w The ID specified in XADD must be greater than 0-0", ErrRespSimpleError)
+	}
+
+	lastTimestamp, lastSeqId, err := parseStreamEntryId(lastId)
+	if err != nil {
+		return "", err
+	}
+
+	if newTimestamp < lastTimestamp {
+		return "", fmt.Errorf("%w The ID specified in XADD is equal or smaller than the target stream top item", ErrRespSimpleError)
+	}
+
+	if newTimestamp == lastTimestamp {
+		if newSeqId <= lastSeqId {
+			return "", fmt.Errorf("%w The ID specified in XADD is equal or smaller than the target stream top item", ErrRespSimpleError)
+		}
+	}
+
+	return newId, nil
+}
+
 func xadd(args []string) ([]byte, error) {
-	var str stream
+	var stream streamEntry
+
 	entry := make(map[string]string)
 
 	if len(args) < 3 {
@@ -207,20 +259,28 @@ func xadd(args []string) ([]byte, error) {
 	id := args[1]
 	kv := args[2:]
 
-	str, ok := status.databases[status.activeDB].streamStore[key]
+	stream, ok := status.databases[status.activeDB].streamStore[key]
 	if !ok {
-		str = stream{
+		stream = streamEntry{
 			entries: make([]map[string]string, 1),
+			lastId:  "0-0",
 		}
 	}
 
-	entry["id"] = id
+	validatedId, err := validateStreamEntryId(id, stream.lastId)
+	if err != nil {
+		return nil, err
+	}
+
+	entry["id"] = validatedId
+
 	for i := 0; i+1 < len(kv); i += 2 {
 		entry[kv[i]] = kv[i+1]
 	}
 
-	str.entries = append(str.entries, entry)
-	status.databases[status.activeDB].streamStore[key] = str
+	stream.entries = append(stream.entries, entry)
+	stream.lastId = id
+	status.databases[status.activeDB].streamStore[key] = stream
 
 	return encodeBulkString(id), nil
 }
