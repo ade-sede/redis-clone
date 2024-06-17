@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -291,7 +292,7 @@ func xadd(args []string) ([]byte, error) {
 	stream, ok := status.databases[status.activeDB].streamStore[key]
 	if !ok {
 		stream = streamEntry{
-			entries: make([]map[string]string, 1),
+			entries: make([]map[string]string, 0),
 			lastId:  "0-0",
 		}
 	}
@@ -312,4 +313,100 @@ func xadd(args []string) ([]byte, error) {
 	status.databases[status.activeDB].streamStore[key] = stream
 
 	return encodeRespBulkString(validatedId), nil
+}
+
+func xrange(args []string) ([]byte, error) {
+	if len(args) != 3 {
+		return nil, ErrRespWrongNumberOfArguments
+	}
+
+	key := args[0]
+	start := args[1]
+	end := args[2]
+
+	stream, ok := status.databases[status.activeDB].streamStore[key]
+	if !ok {
+		return []byte("*0\r\n"), nil
+	}
+
+	startMs, startSeq, err := parseStreamEntryId(start)
+	if err != nil {
+		return nil, err
+	}
+
+	endMs, endSeq, err := parseStreamEntryId(end)
+	if err != nil {
+		return nil, err
+	}
+
+	if startSeq == -1 {
+		startSeq = 0
+	}
+
+	if endSeq == -1 {
+		endSeq = math.MaxInt
+	}
+
+	capturedEntries := make([]map[string]string, 0)
+
+	for _, entry := range stream.entries {
+		entryMs, entrySeq, err := parseStreamEntryId(entry["id"])
+		if err != nil {
+			return nil, err
+		}
+
+		if entryMs >= startMs && entryMs <= endMs && entrySeq >= startSeq && entrySeq <= endSeq {
+			capturedEntries = append(capturedEntries, entry)
+		}
+	}
+
+	// Each entry is returned as an array of two elements
+	// First element is the ID of the entry as a bulk strings
+	// Second element is an array where all keys and values are bulk strings
+	//
+	// [
+	//   [
+	//     "1526985054069-0",
+	//     [
+	//       "temperature",
+	//       "36",
+	//       "humidity",
+	//       "95"
+	//     ]
+	//   ],
+	//   [
+	//     "1526985054079-0",
+	//     [
+	//       "temperature",
+	//       "37",
+	//       "humidity",
+	//       "94"
+	//     ]
+	//   ],
+	// ]
+
+	allRespEncodedEntries := make([][]byte, 0)
+	for _, entry := range capturedEntries {
+		id := encodeRespBulkString(entry["id"])
+
+		allKVs := make([][]byte, 0)
+		for k, v := range entry {
+			if k == "id" {
+				continue
+			}
+
+			key := encodeRespBulkString(k)
+			value := encodeRespBulkString(v)
+
+			allKVs = append(allKVs, key)
+			allKVs = append(allKVs, value)
+		}
+
+		kvArray := encodeRespArray(allKVs)
+		respEncodedEntry := encodeRespArray([][]byte{id, kvArray})
+		allRespEncodedEntries = append(allRespEncodedEntries, respEncodedEntry)
+	}
+
+	response := encodeRespArray(allRespEncodedEntries)
+	return response, nil
 }

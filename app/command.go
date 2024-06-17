@@ -27,6 +27,7 @@ const (
 	DEL
 	TYPE
 	XADD
+	XRANGE
 )
 
 func ping() []byte {
@@ -175,6 +176,11 @@ func execute(conn *connection, query *query) ([]byte, command, error) {
 	if strings.EqualFold(command, "XADD") {
 		response, err := xadd(args)
 		return response, XADD, err
+	}
+
+	if strings.EqualFold(command, "xrange") {
+		response, err := xrange(args)
+		return response, XRANGE, err
 	}
 
 	return nil, UNKNOWN, fmt.Errorf("%w unknown command '%s'", ErrRespSimpleError, command)
