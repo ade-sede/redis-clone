@@ -329,6 +329,14 @@ func xrange(args []string) ([]byte, error) {
 		return []byte("*0\r\n"), nil
 	}
 
+	if start == "-" {
+		start = "0-0"
+	}
+
+	if end == "+" {
+		start = fmt.Sprintf("%d-%d", math.MaxInt, math.MaxInt)
+	}
+
 	startMs, startSeq, err := parseStreamEntryId(start)
 	if err != nil {
 		return nil, err
