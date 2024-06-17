@@ -50,10 +50,10 @@ func config(args []string) ([]byte, error) {
 		}
 	}
 
-	return encodeStringArray(response), nil
+	return encodeRespStringArray(response), nil
 }
 
-func readEncodedLength(reader *bufio.Reader) (int, error) {
+func readRDBEncodedLength(reader *bufio.Reader) (int, error) {
 	length := 0
 
 	b, err := reader.ReadByte()
@@ -87,7 +87,7 @@ func readEncodedLength(reader *bufio.Reader) (int, error) {
 	return length, nil
 }
 
-func readEncodedString(reader *bufio.Reader) (string, error) {
+func readRDBEncodedString(reader *bufio.Reader) (string, error) {
 	encodedIntegerSize := 0
 
 	b, err := reader.Peek(1)
@@ -130,7 +130,7 @@ func readEncodedString(reader *bufio.Reader) (string, error) {
 		return strconv.Itoa(int(number)), nil
 	}
 
-	length, err := readEncodedLength(reader)
+	length, err := readRDBEncodedLength(reader)
 	if err != nil {
 		return "", err
 	}
@@ -148,7 +148,7 @@ func readEncodedString(reader *bufio.Reader) (string, error) {
 	return string(buf), nil
 }
 
-func readAuxiliaryField(reader *bufio.Reader) (key string, value string, err error) {
+func readRDBAuxiliaryField(reader *bufio.Reader) (key string, value string, err error) {
 	prefix, err := reader.ReadByte()
 	if err != nil {
 		return "", "", err
@@ -158,12 +158,12 @@ func readAuxiliaryField(reader *bufio.Reader) (key string, value string, err err
 		return "", "", fmt.Errorf("Expected 0xFA, got %02x", prefix)
 	}
 
-	key, err = readEncodedString(reader)
+	key, err = readRDBEncodedString(reader)
 	if err != nil {
 		return "", "", err
 	}
 
-	value, err = readEncodedString(reader)
+	value, err = readRDBEncodedString(reader)
 	if err != nil {
 		return "", "", err
 	}
@@ -171,7 +171,7 @@ func readAuxiliaryField(reader *bufio.Reader) (key string, value string, err err
 	return key, value, nil
 }
 
-func readDbSelector(reader *bufio.Reader) (int, error) {
+func readRDBDatabaseSelector(reader *bufio.Reader) (int, error) {
 	prefix, err := reader.ReadByte()
 	if err != nil {
 		return -1, err
@@ -181,10 +181,10 @@ func readDbSelector(reader *bufio.Reader) (int, error) {
 		return -1, fmt.Errorf("Expected 0xFE, got %02x", prefix)
 	}
 
-	return readEncodedLength(reader)
+	return readRDBEncodedLength(reader)
 }
 
-func readResizeDBSection(reader *bufio.Reader) error {
+func readRDBResizeDBSection(reader *bufio.Reader) error {
 	prefix, err := reader.ReadByte()
 	if err != nil {
 		return err
@@ -195,13 +195,13 @@ func readResizeDBSection(reader *bufio.Reader) error {
 	}
 
 	// hash table size
-	_, err = readEncodedLength(reader)
+	_, err = readRDBEncodedLength(reader)
 	if err != nil {
 		return err
 	}
 
 	// expiry hash table size
-	_, err = readEncodedLength(reader)
+	_, err = readRDBEncodedLength(reader)
 	if err != nil {
 		return err
 	}
@@ -209,7 +209,7 @@ func readResizeDBSection(reader *bufio.Reader) error {
 	return nil
 }
 
-func readDatabaseEntry(reader *bufio.Reader) (string, *stringEntry, error) {
+func readRDBDatabaseEntry(reader *bufio.Reader) (string, *stringEntry, error) {
 	var expiresAt *time.Time
 
 	b, err := reader.Peek(1)
@@ -264,12 +264,12 @@ func readDatabaseEntry(reader *bufio.Reader) (string, *stringEntry, error) {
 
 	}
 
-	key, err := readEncodedString(reader)
+	key, err := readRDBEncodedString(reader)
 	if err != nil {
 		return "", nil, err
 	}
 
-	value, err := readEncodedString(reader)
+	value, err := readRDBEncodedString(reader)
 	if err != nil {
 		return "", nil, err
 	}
@@ -280,11 +280,11 @@ func readDatabaseEntry(reader *bufio.Reader) (string, *stringEntry, error) {
 	}, nil
 }
 
-func readDatabaseSection(reader *bufio.Reader) (int, map[string]stringEntry, error) {
+func readRDBDatabaseSection(reader *bufio.Reader) (int, map[string]stringEntry, error) {
 	databaseNumber := -1
 	stringStore := make(map[string]stringEntry)
 
-	databaseNumber, err := readDbSelector(reader)
+	databaseNumber, err := readRDBDatabaseSelector(reader)
 	if err != nil {
 		return databaseNumber, stringStore, err
 	}
@@ -300,12 +300,12 @@ func readDatabaseSection(reader *bufio.Reader) (int, map[string]stringEntry, err
 		}
 
 		if b[0] == 0xFB {
-			err := readResizeDBSection(reader)
+			err := readRDBResizeDBSection(reader)
 			if err != nil {
 				return databaseNumber, stringStore, err
 			}
 		} else {
-			key, stringEntry, err := readDatabaseEntry(reader)
+			key, stringEntry, err := readRDBDatabaseEntry(reader)
 			if err != nil {
 				return databaseNumber, stringStore, err
 			}
@@ -347,14 +347,14 @@ func readRDBFile(reader *bufio.Reader) error {
 		}
 
 		if b[0] == 0xFA {
-			key, value, err := readAuxiliaryField(reader)
+			key, value, err := readRDBAuxiliaryField(reader)
 			if err != nil {
 				return err
 			}
 
 			metadata[key] = value
 		} else if b[0] == 0xFE {
-			dbNumber, stringStore, err := readDatabaseSection(reader)
+			dbNumber, stringStore, err := readRDBDatabaseSection(reader)
 			if err != nil {
 				return err
 			}
@@ -450,5 +450,5 @@ func save() ([]byte, error) {
 		return nil, err
 	}
 
-	return encodeSimpleString("OK"), nil
+	return encodeRespSimpleString("OK"), nil
 }

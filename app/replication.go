@@ -74,17 +74,17 @@ func handshake(conn *connection, listeningPort int) {
 	conn.handler.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 	reader := bufio.NewReader(conn.handler)
 
-	conn.handler.Write(encodeStringArray([]string{"PING"}))
+	conn.handler.Write(encodeRespStringArray([]string{"PING"}))
 	readResp(reader) // expect "+PONG\r\n"
 
-	conn.handler.Write(encodeStringArray([]string{
+	conn.handler.Write(encodeRespStringArray([]string{
 		"REPLCONF",
 		"listening-port",
 		strconv.Itoa(listeningPort),
 	}))
 	readResp(reader) // expect "+OK\r\n"
 
-	conn.handler.Write(encodeStringArray([]string{
+	conn.handler.Write(encodeRespStringArray([]string{
 		"REPLCONF",
 		"capa",
 		"psync2",
@@ -93,7 +93,7 @@ func handshake(conn *connection, listeningPort int) {
 	}))
 	readResp(reader) // expect "+OK\r\n"
 
-	conn.handler.Write(encodeStringArray([]string{
+	conn.handler.Write(encodeRespStringArray([]string{
 		"PSYNC",
 		status.replId,
 		strconv.Itoa(status.replOffset),
@@ -153,7 +153,7 @@ func replconf(conn *connection, args []string) ([]byte, command, error) {
 	}
 
 	if isGetAck {
-		response := encodeStringArray([]string{
+		response := encodeRespStringArray([]string{
 			"REPLCONF",
 			"ACK",
 			strconv.Itoa(status.replOffset),
@@ -173,7 +173,7 @@ func psync(conn *connection) ([]byte, error) {
 
 	// Should actually send the server's offset instead of 0
 	// But codecrafters' test suite expects 0
-	fullResyncNotification := encodeSimpleString(fmt.Sprintf("FULLRESYNC %s %d",
+	fullResyncNotification := encodeRespSimpleString(fmt.Sprintf("FULLRESYNC %s %d",
 		status.replId,
 		0))
 
@@ -199,7 +199,7 @@ func wait(args []string) []byte {
 	defer status.globalLock.Unlock()
 
 	if len(status.replicas) == 0 {
-		return encodeInteger(0)
+		return encodeRespInteger(0)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -225,11 +225,11 @@ func wait(args []string) []byte {
 			// Commenting out just to pass tests
 			// if doneCount == replicaCountTarget {
 			// cancel()
-			// return encodeInteger(doneCount)
+			// return encodeRespInteger(doneCount)
 			// }
 		case <-time.After(timeout):
 			cancel()
-			return encodeInteger(doneCount)
+			return encodeRespInteger(doneCount)
 		}
 	}
 }
@@ -240,7 +240,7 @@ func pollReplicaCount(ctx context.Context, replica *replica, ack chan bool) {
 		return
 	}
 
-	n, _ := replica.conn.handler.Write(encodeStringArray(
+	n, _ := replica.conn.handler.Write(encodeRespStringArray(
 		[]string{"REPLCONF", "GETACK", "*"},
 	))
 	replica.expectedOffset += n

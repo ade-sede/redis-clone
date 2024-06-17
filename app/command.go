@@ -34,7 +34,7 @@ func ping() []byte {
 }
 
 func echo(args []string) []byte {
-	return encodeBulkString(args[0])
+	return encodeRespBulkString(args[0])
 }
 
 func info(args []string) []byte {
@@ -70,7 +70,7 @@ master_repl_offset:%d`,
 			status.replId,
 			status.replOffset)
 
-		return encodeBulkString(response)
+		return encodeRespBulkString(response)
 	}
 
 	panic("Unreachable code")

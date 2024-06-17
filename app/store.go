@@ -118,7 +118,7 @@ func get(args []string) ([]byte, error) {
 		return []byte("$-1\r\n"), nil
 	}
 
-	return encodeBulkString(entry.value), nil
+	return encodeRespBulkString(entry.value), nil
 }
 
 func del(args []string) ([]byte, error) {
@@ -136,7 +136,7 @@ func del(args []string) ([]byte, error) {
 		}
 	}
 
-	return encodeInteger(deleted), nil
+	return encodeRespInteger(deleted), nil
 }
 
 func selectFunc(args []string) []byte {
@@ -174,7 +174,7 @@ func keys(args []string) ([]byte, error) {
 		}
 	}
 
-	return encodeStringArray(keys), nil
+	return encodeRespStringArray(keys), nil
 }
 
 func typeFunc(args []string) ([]byte, error) {
@@ -188,14 +188,14 @@ func typeFunc(args []string) ([]byte, error) {
 	_, inStreamStore := status.databases[status.activeDB].streamStore[key]
 
 	if inStringStore {
-		return encodeSimpleString("string"), nil
+		return encodeRespSimpleString("string"), nil
 	}
 
 	if inStreamStore {
-		return encodeSimpleString("stream"), nil
+		return encodeRespSimpleString("stream"), nil
 	}
 
-	return encodeSimpleString("none"), nil
+	return encodeRespSimpleString("none"), nil
 }
 
 func parseStreamEntryId(id string) (int, int, error) {
@@ -311,5 +311,5 @@ func xadd(args []string) ([]byte, error) {
 	stream.lastId = validatedId
 	status.databases[status.activeDB].streamStore[key] = stream
 
-	return encodeBulkString(validatedId), nil
+	return encodeRespBulkString(validatedId), nil
 }

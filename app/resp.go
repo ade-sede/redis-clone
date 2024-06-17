@@ -33,13 +33,13 @@ type query struct {
 
 func (q *query) raw() []byte {
 	if q.queryType == SimpleString {
-		return encodeSimpleString(q.value.(string))
+		return encodeRespSimpleString(q.value.(string))
 	} else if q.queryType == SimpleError {
-		return encodeSimpleError(q.value.(string))
+		return encodeRespSimpleError(q.value.(string))
 	} else if q.queryType == Integer {
-		return encodeInteger(q.value.(int))
+		return encodeRespInteger(q.value.(int))
 	} else if q.queryType == BulkString {
-		return encodeBulkString(q.value.(string))
+		return encodeRespBulkString(q.value.(string))
 	} else if q.queryType == Array {
 		array := q.value.([]*query)
 
@@ -156,7 +156,7 @@ func atoi(reader *bufio.Reader) (int, error) {
 	return n, nil
 }
 
-func parseSimpleString(reader *bufio.Reader) (*query, error) {
+func parseRespSimpleString(reader *bufio.Reader) (*query, error) {
 	buf, err := reader.ReadBytes('\n')
 	if err != nil {
 		return nil, err
@@ -168,8 +168,8 @@ func parseSimpleString(reader *bufio.Reader) (*query, error) {
 	}, nil
 }
 
-func parseSimpleError(reader *bufio.Reader) (*query, error) {
-	query, err := parseSimpleString(reader)
+func parseRespSimpleError(reader *bufio.Reader) (*query, error) {
+	query, err := parseRespSimpleString(reader)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +179,7 @@ func parseSimpleError(reader *bufio.Reader) (*query, error) {
 	return query, nil
 }
 
-func parseBulkString(reader *bufio.Reader) (*query, error) {
+func parseRespBulkString(reader *bufio.Reader) (*query, error) {
 	length, err := atoi(reader)
 	if err != nil {
 		return nil, err
@@ -231,35 +231,46 @@ func parseBulkString(reader *bufio.Reader) (*query, error) {
 	}, nil
 }
 
-func encodeStringArray(a []string) []byte {
+func encodeRespStringArray(a []string) []byte {
 	response := make([]byte, 0)
 	prefix := fmt.Sprintf("*%d\r\n", len(a))
 	response = append(response, []byte(prefix)...)
 	for _, s := range a {
-		bulkString := encodeBulkString(s)
+		bulkString := encodeRespBulkString(s)
 		response = append(response, bulkString...)
 	}
 
 	return response
 }
 
-func encodeBulkString(str string) []byte {
+func encodeRespBulkString(str string) []byte {
 	return []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(str), str))
 }
 
-func encodeSimpleString(str string) []byte {
+func encodeRespSimpleString(str string) []byte {
 	return []byte(fmt.Sprintf("+%s\r\n", str))
 }
 
-func encodeSimpleError(str string) []byte {
+func encodeRespSimpleError(str string) []byte {
 	return []byte(fmt.Sprintf("-%s\r\n", str))
 }
 
-func encodeInteger(i int) []byte {
+func encodeRespInteger(i int) []byte {
 	return []byte(fmt.Sprintf(":%d\r\n", i))
 }
 
-func parseArray(reader *bufio.Reader) (*query, error) {
+func encodeRespArray(nestedBuffer [][]byte) []byte {
+	buf := make([]byte, 0)
+
+	buf = []byte(fmt.Sprintf("*%d\r\n", len(nestedBuffer)))
+	for _, innerBuffer := range nestedBuffer {
+		buf = append(buf, innerBuffer...)
+	}
+
+	return buf
+}
+
+func parseRespArray(reader *bufio.Reader) (*query, error) {
 	length, err := atoi(reader)
 	if err != nil {
 		return nil, err
@@ -318,12 +329,12 @@ func readResp(reader *bufio.Reader) (*query, error) {
 
 	switch prefix {
 	case '+':
-		q, err = parseSimpleString(reader)
+		q, err = parseRespSimpleString(reader)
 		if err != nil {
 			return nil, err
 		}
 	case '-':
-		q, err = parseSimpleError(reader)
+		q, err = parseRespSimpleError(reader)
 		if err != nil {
 			return nil, err
 		}
@@ -338,12 +349,12 @@ func readResp(reader *bufio.Reader) (*query, error) {
 			value:     n,
 		}
 	case '$':
-		q, err = parseBulkString(reader)
+		q, err = parseRespBulkString(reader)
 		if err != nil {
 			return nil, err
 		}
 	case '*':
-		q, err = parseArray(reader)
+		q, err = parseRespArray(reader)
 		if err != nil {
 			return nil, err
 		}
