@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"regexp"
@@ -242,7 +243,7 @@ func validateStreamEntryId(newId string, lastId string) (string, error) {
 	}
 
 	if newMs == 0 && newSeq == 0 {
-		return "", fmt.Errorf("%w The ID specified in XADD must be greater than 0-0", ErrRespSimpleError)
+		return "", fmt.Errorf("%w The ID specified in XADD must be greater than 0-0\r\n", ErrRespSimpleError)
 	}
 
 	lastMs, lastSeq, err := parseStreamEntryId(lastId)
@@ -263,12 +264,12 @@ func validateStreamEntryId(newId string, lastId string) (string, error) {
 	}
 
 	if newMs < lastMs {
-		return "", fmt.Errorf("%w The ID specified in XADD is equal or smaller than the target stream top item", ErrRespSimpleError)
+		return "", fmt.Errorf("%w The ID specified in XADD is equal or smaller than the target stream top item\r\n", ErrRespSimpleError)
 	}
 
 	if newMs == lastMs {
 		if newSeq <= lastSeq {
-			return "", fmt.Errorf("%w The ID specified in XADD is equal or smaller than the target stream top item", ErrRespSimpleError)
+			return "", fmt.Errorf("%w The ID specified in XADD is equal or smaller than the target stream top item\r\n", ErrRespSimpleError)
 		}
 	}
 
@@ -314,6 +315,8 @@ func xadd(args []string) ([]byte, error) {
 	return encodeRespBulkString(validatedId), nil
 }
 
+// TODO xrange, xread, and stream type need major refactor
+// unreadable code, spaghetti logic
 func xrange(args []string) ([]byte, error) {
 	if len(args) != 3 {
 		return nil, ErrRespWrongNumberOfArguments
@@ -421,6 +424,9 @@ func xrange(args []string) ([]byte, error) {
 }
 
 func xread(args []string) ([]byte, error) {
+	var blockTimeout time.Duration
+	var blocking bool = false
+
 	if len(args) < 3 {
 		return nil, ErrRespWrongNumberOfArguments
 	}
@@ -428,6 +434,19 @@ func xread(args []string) ([]byte, error) {
 	var streamArgs []string
 
 	for i, arg := range args {
+		if arg == "block" {
+			if i+1 >= len(args) {
+				return nil, ErrRespWrongNumberOfArguments
+			}
+
+			blocking = true
+			timeout, err := strconv.Atoi(args[i+1])
+			if err != nil {
+				return nil, err
+			}
+
+			blockTimeout = time.Duration(timeout) * time.Millisecond
+		}
 		if arg == "streams" {
 			streamArgs = args[i+1:]
 			break
@@ -439,64 +458,123 @@ func xread(args []string) ([]byte, error) {
 	}
 
 	allCapturedEntries := make(map[string][]map[string]string)
+	resultC := make(chan res)
+	errorC := make(chan error)
+
+	ctx, cancel := context.WithCancel(context.Background())
 
 	for i := 0; i < len(streamArgs)/2; i++ {
 		key := streamArgs[i]
 		id := streamArgs[i+(len(streamArgs)/2)]
-		stream, ok := status.databases[status.activeDB].streamStore[key]
-		if !ok {
-			return nil, fmt.Errorf("%w no stream for key %s", ErrRespSimpleError, key)
-		}
 
-		cutoffMs, cutoffSeq, err := parseStreamEntryId(id)
-		if err != nil {
-			return nil, err
-		}
-
-		capturedEntries := make([]map[string]string, 0)
-
-		for _, entry := range stream.entries {
-			entryId := entry["id"]
-			entryMs, entrySeq, err := parseStreamEntryId(entryId)
-			if err != nil {
-				return nil, err
-			}
-
-			if entryMs > cutoffMs || (entryMs == cutoffMs && entrySeq > cutoffSeq) {
-				capturedEntries = append(capturedEntries, entry)
-			}
-		}
-
-		allCapturedEntries[key] = capturedEntries
+		go xreadRoutine(ctx, key, id, resultC, errorC, blocking)
 	}
 
-	// [
-	//   [
-	//     "stream_key",
-	//     [
-	//       [
-	//         "0-1",
-	//         [
-	//           "foo",
-	//           "bar"
-	//         ]
-	//       ]
-	//     ]
-	//   ],
-	//   [
-	//     "other_stream_key",
-	//     [
-	//       [
-	//         "0-2",
-	//         [
-	//           "bar",
-	//           "baz"
-	//         ]
-	//       ]
-	//     ]
-	//   ]
-	// ]
+	for {
+		select {
+		case res := <-resultC:
+			allCapturedEntries[res.key] = res.entries
+			if len(allCapturedEntries) == len(streamArgs)/2 {
+				cancel()
+				return xreadFormatReturn(allCapturedEntries), nil
+			}
+		case <-time.After(blockTimeout):
+			if blocking {
+				cancel()
+				// Everything around the return format and conditions
+				// is a spaghetti mess becaus I don't actually
+				// understand it
+				if len(allCapturedEntries) == 0 {
+					return []byte("$-1\r\n"), nil
+				}
+				return xreadFormatReturn(allCapturedEntries), nil
+			}
+		}
+	}
+}
 
+type res struct {
+	key     string
+	entries []map[string]string
+}
+
+func xreadRoutine(ctx context.Context, streamKey string, cutoffId string, resultC chan res, errorC chan error, blocking bool) {
+	capturedEntries := make([]map[string]string, 0)
+
+	cutoffMs, cutoffSeq, err := parseStreamEntryId(cutoffId)
+	if err != nil {
+		errorC <- err
+		return
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			stream, ok := status.databases[status.activeDB].streamStore[streamKey]
+			if !ok {
+				errorC <- fmt.Errorf("%w no stream for key %s", ErrRespSimpleError, streamKey)
+				return
+			}
+
+			for _, entry := range stream.entries {
+				entryId := entry["id"]
+				entryMs, entrySeq, err := parseStreamEntryId(entryId)
+				if err != nil {
+					errorC <- err
+					return
+				}
+
+				if entryMs > cutoffMs || (entryMs == cutoffMs && entrySeq > cutoffSeq) {
+					capturedEntries = append(capturedEntries, entry)
+				}
+			}
+
+			if blocking && len(capturedEntries) == 0 {
+				continue
+			}
+
+			resultC <- res{
+				key:     streamKey,
+				entries: capturedEntries,
+			}
+			return
+		}
+	}
+}
+
+// Output format is complicated
+// Variable naming is kind of a mess ... :'(
+// [
+//
+//	[
+//	  "stream_key",
+//	  [
+//	    [
+//	      "0-1",
+//	      [
+//	        "foo",
+//	        "bar"
+//	      ]
+//	    ]
+//	  ]
+//	],
+//	[
+//	  "other_stream_key",
+//	  [
+//	    [
+//	      "0-2",
+//	      [
+//	        "bar",
+//	        "baz"
+//	      ]
+//	    ]
+//	  ]
+//	]
+//
+// ]
+func xreadFormatReturn(allCapturedEntries map[string][]map[string]string) []byte {
 	allStreams := make([][]byte, 0)
 	for streamKey, capturedEntries := range allCapturedEntries {
 		encodedStreamKey := encodeRespBulkString(streamKey)
@@ -522,10 +600,10 @@ func xread(args []string) ([]byte, error) {
 			encodedEntry := encodeRespArray([][]byte{encodedId, encodedKvArray})
 			allEncodedEntriesForKey = append(allEncodedEntriesForKey, encodedEntry)
 		}
-
 		encodedStream := encodeRespArray([][]byte{encodedStreamKey, encodeRespArray(allEncodedEntriesForKey)})
 		allStreams = append(allStreams, encodedStream)
 	}
 
-	return encodeRespArray(allStreams), nil
+	response := encodeRespArray(allStreams)
+	return response
 }
