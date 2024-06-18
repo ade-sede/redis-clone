@@ -15,24 +15,46 @@ type stringEntry struct {
 	expiresAt *time.Time
 }
 
-// A stream is described by a key.
-// It contains a list of entries.
-// Each entry in a stream is a KV store
-type streamEntry struct {
-	entries []map[string]string
+type streamEntry map[string]string
+
+func (entry streamEntry) encode() []byte {
+	encodedId := encodeRespBulkString(entry["id"])
+
+	allKVs := make([][]byte, 0)
+	for k, v := range entry {
+		if k == "id" {
+			continue
+		}
+
+		key := encodeRespBulkString(k)
+		value := encodeRespBulkString(v)
+
+		allKVs = append(allKVs, key)
+		allKVs = append(allKVs, value)
+	}
+
+	encodedKvArray := encodeRespArray(allKVs)
+	encodedEntry := encodeRespArray([][]byte{encodedId, encodedKvArray})
+
+	return encodedEntry
+}
+
+type stream struct {
+	entries []streamEntry
 	lastId  string
 }
 
 type database struct {
 	stringStore map[string]stringEntry
-	streamStore map[string]streamEntry
+	streamStore map[string]stream
 }
 
 func initStore() error {
 	status.activeDB = 0
 	status.databases = make(map[int]database)
-	initialDB := database{stringStore: make(map[string]stringEntry),
-		streamStore: make(map[string]streamEntry),
+	initialDB := database{
+		stringStore: make(map[string]stringEntry),
+		streamStore: make(map[string]stream),
 	}
 	status.databases[0] = initialDB
 
@@ -145,7 +167,7 @@ func selectFunc(args []string) []byte {
 	if _, ok := status.databases[status.activeDB]; !ok {
 		newDB := database{
 			stringStore: make(map[string]stringEntry),
-			streamStore: make(map[string]streamEntry),
+			streamStore: make(map[string]stream),
 		}
 		status.databases[status.activeDB] = newDB
 	}
@@ -277,7 +299,7 @@ func validateStreamEntryId(newId string, lastId string) (string, error) {
 }
 
 func xadd(args []string) ([]byte, error) {
-	var stream streamEntry
+	var aStream stream
 
 	entry := make(map[string]string)
 
@@ -289,15 +311,15 @@ func xadd(args []string) ([]byte, error) {
 	id := args[1]
 	kv := args[2:]
 
-	stream, ok := status.databases[status.activeDB].streamStore[key]
+	aStream, ok := status.databases[status.activeDB].streamStore[key]
 	if !ok {
-		stream = streamEntry{
-			entries: make([]map[string]string, 0),
+		aStream = stream{
+			entries: make([]streamEntry, 0),
 			lastId:  "0-0",
 		}
 	}
 
-	validatedId, err := validateStreamEntryId(id, stream.lastId)
+	validatedId, err := validateStreamEntryId(id, aStream.lastId)
 	if err != nil {
 		return nil, err
 	}
@@ -308,15 +330,13 @@ func xadd(args []string) ([]byte, error) {
 		entry[kv[i]] = kv[i+1]
 	}
 
-	stream.entries = append(stream.entries, entry)
-	stream.lastId = validatedId
-	status.databases[status.activeDB].streamStore[key] = stream
+	aStream.entries = append(aStream.entries, entry)
+	aStream.lastId = validatedId
+	status.databases[status.activeDB].streamStore[key] = aStream
 
 	return encodeRespBulkString(validatedId), nil
 }
 
-// TODO xrange, xread, and stream type need major refactor
-// unreadable code, spaghetti logic
 func xrange(args []string) ([]byte, error) {
 	if len(args) != 3 {
 		return nil, ErrRespWrongNumberOfArguments
@@ -372,50 +392,9 @@ func xrange(args []string) ([]byte, error) {
 
 	}
 
-	// Each entry is returned as an array of two elements
-	// First element is the ID of the entry as a bulk strings
-	// Second element is an array where all keys and values are bulk strings
-	//
-	// [
-	//   [
-	//     "1526985054069-0",
-	//     [
-	//       "temperature",
-	//       "36",
-	//       "humidity",
-	//       "95"
-	//     ]
-	//   ],
-	//   [
-	//     "1526985054079-0",
-	//     [
-	//       "temperature",
-	//       "37",
-	//       "humidity",
-	//       "94"
-	//     ]
-	//   ],
-	// ]
-
 	allRespEncodedEntries := make([][]byte, 0)
 	for _, entry := range capturedEntries {
-		id := encodeRespBulkString(entry["id"])
-
-		allKVs := make([][]byte, 0)
-		for k, v := range entry {
-			if k == "id" {
-				continue
-			}
-
-			key := encodeRespBulkString(k)
-			value := encodeRespBulkString(v)
-
-			allKVs = append(allKVs, key)
-			allKVs = append(allKVs, value)
-		}
-
-		kvArray := encodeRespArray(allKVs)
-		respEncodedEntry := encodeRespArray([][]byte{id, kvArray})
+		respEncodedEntry := streamEntry(entry).encode()
 		allRespEncodedEntries = append(allRespEncodedEntries, respEncodedEntry)
 	}
 
@@ -458,7 +437,7 @@ func xread(args []string) ([]byte, error) {
 	}
 
 	allCapturedEntries := make(map[string][]map[string]string)
-	resultC := make(chan res)
+	resultC := make(chan xreadRoutineResult)
 	errorC := make(chan error)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -490,10 +469,12 @@ func xread(args []string) ([]byte, error) {
 				time.Sleep(10 * time.Millisecond)
 
 				cancel()
-				// Everything around the return format and conditions
-				// is a spaghetti mess becaus I don't actually
-				// understand it
 				if len(allCapturedEntries) == 0 {
+					// TODO figure out all the return rules
+					// Apparently if we were blocking for a result,
+					// and there is none we do not return
+					// an empty array, we return the null
+					// bulk string.
 					return []byte("$-1\r\n"), nil
 				}
 				return xreadFormatReturn(allCapturedEntries), nil
@@ -502,12 +483,12 @@ func xread(args []string) ([]byte, error) {
 	}
 }
 
-type res struct {
+type xreadRoutineResult struct {
 	key     string
 	entries []map[string]string
 }
 
-func xreadRoutine(ctx context.Context, streamKey string, cutoffId string, resultC chan res, errorC chan error, blocking bool) {
+func xreadRoutine(ctx context.Context, streamKey string, cutoffId string, resultC chan xreadRoutineResult, errorC chan error, blocking bool) {
 	capturedEntries := make([]map[string]string, 0)
 
 	for {
@@ -548,7 +529,7 @@ func xreadRoutine(ctx context.Context, streamKey string, cutoffId string, result
 				continue
 			}
 
-			resultC <- res{
+			resultC <- xreadRoutineResult{
 				key:     streamKey,
 				entries: capturedEntries,
 			}
@@ -557,66 +538,20 @@ func xreadRoutine(ctx context.Context, streamKey string, cutoffId string, result
 	}
 }
 
-// Output format is complicated
-// Variable naming is kind of a mess ... :'(
-// [
-//
-//	[
-//	  "stream_key",
-//	  [
-//	    [
-//	      "0-1",
-//	      [
-//	        "foo",
-//	        "bar"
-//	      ]
-//	    ]
-//	  ]
-//	],
-//	[
-//	  "other_stream_key",
-//	  [
-//	    [
-//	      "0-2",
-//	      [
-//	        "bar",
-//	        "baz"
-//	      ]
-//	    ]
-//	  ]
-//	]
-//
-// ]
 func xreadFormatReturn(allCapturedEntries map[string][]map[string]string) []byte {
-	allStreams := make([][]byte, 0)
-	for streamKey, capturedEntries := range allCapturedEntries {
-		encodedStreamKey := encodeRespBulkString(streamKey)
+	outerArray := make([][]byte, 0)
+
+	for key, entries := range allCapturedEntries {
+		encodedKey := encodeRespBulkString(key)
 
 		allEncodedEntriesForKey := make([][]byte, 0)
-		for _, entry := range capturedEntries {
-			encodedId := encodeRespBulkString(entry["id"])
-
-			allKVs := make([][]byte, 0)
-			for k, v := range entry {
-				if k == "id" {
-					continue
-				}
-
-				key := encodeRespBulkString(k)
-				value := encodeRespBulkString(v)
-
-				allKVs = append(allKVs, key)
-				allKVs = append(allKVs, value)
-			}
-
-			encodedKvArray := encodeRespArray(allKVs)
-			encodedEntry := encodeRespArray([][]byte{encodedId, encodedKvArray})
+		for _, entry := range entries {
+			encodedEntry := streamEntry(entry).encode()
 			allEncodedEntriesForKey = append(allEncodedEntriesForKey, encodedEntry)
 		}
-		encodedStream := encodeRespArray([][]byte{encodedStreamKey, encodeRespArray(allEncodedEntriesForKey)})
-		allStreams = append(allStreams, encodedStream)
+		encodedStream := encodeRespArray([][]byte{encodedKey, encodeRespArray(allEncodedEntriesForKey)})
+		outerArray = append(outerArray, encodedStream)
 	}
 
-	response := encodeRespArray(allStreams)
-	return response
+	return encodeRespArray(outerArray)
 }

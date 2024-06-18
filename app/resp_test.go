@@ -415,7 +415,7 @@ func generateEmptyRDBFile() []byte {
 	databases := make(map[int]database)
 	db := database{
 		stringStore: make(map[string]stringEntry),
-		streamStore: make(map[string]streamEntry),
+		streamStore: make(map[string]stream),
 	}
 
 	databases[0] = db

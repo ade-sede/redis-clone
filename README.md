@@ -38,7 +38,7 @@ $> redis-cli -p 6667 get anotherkey # anothervalue
 
 # TODO
 
-- Fix flaky `read map while writing`
-- Fix ordering of keys in stream maps
-- Refactor types for everything stream related, too many []map[]map[]map[]...
-- Figure out proper logic around returns for `XREAD` and `XRANGE`. Current code is spaghettie logic and full of undefined behavior
+- Fix dirty workaround `XREAD` routine not being canceled in time (we start writing to the map while a read is ongoing in the goroutine)
+- Fix flaky ordering of keys when reading multiple streams with `XREAD`
+- Figure out proper logic around returns for `XREAD` and `XRANGE`.
+- Persist stream to disk (and decode when reading RDB file)
