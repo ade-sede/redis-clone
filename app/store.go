@@ -479,7 +479,7 @@ func xread(args []string) ([]byte, error) {
 				return xreadFormatReturn(allCapturedEntries), nil
 			}
 		case <-time.After(blockTimeout):
-			if blocking {
+			if blocking && blockTimeout > 0 {
 				cancel()
 				// Everything around the return format and conditions
 				// is a spaghetti mess becaus I don't actually
