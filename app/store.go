@@ -476,10 +476,19 @@ func xread(args []string) ([]byte, error) {
 			allCapturedEntries[res.key] = res.entries
 			if len(allCapturedEntries) == len(streamArgs)/2 {
 				cancel()
+				// TODO proper sync mechanism
+				// If we try to access a map while the routine is still using it, go will panic
+				// We need to wait until the goroutine is truly finished before going forward
+				time.Sleep(10 * time.Millisecond)
 				return xreadFormatReturn(allCapturedEntries), nil
 			}
 		case <-time.After(blockTimeout):
 			if blocking && blockTimeout > 0 {
+				// TODO proper sync mechanism
+				// If we try to access a map while the routine is still using it, go will panic
+				// We need to wait until the goroutine is truly finished before going forward
+				time.Sleep(10 * time.Millisecond)
+
 				cancel()
 				// Everything around the return format and conditions
 				// is a spaghetti mess becaus I don't actually
