@@ -501,12 +501,6 @@ type res struct {
 func xreadRoutine(ctx context.Context, streamKey string, cutoffId string, resultC chan res, errorC chan error, blocking bool) {
 	capturedEntries := make([]map[string]string, 0)
 
-	cutoffMs, cutoffSeq, err := parseStreamEntryId(cutoffId)
-	if err != nil {
-		errorC <- err
-		return
-	}
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -515,6 +509,16 @@ func xreadRoutine(ctx context.Context, streamKey string, cutoffId string, result
 			stream, ok := status.databases[status.activeDB].streamStore[streamKey]
 			if !ok {
 				errorC <- fmt.Errorf("%w no stream for key %s", ErrRespSimpleError, streamKey)
+				return
+			}
+
+			if cutoffId == "$" {
+				cutoffId = stream.lastId
+			}
+
+			cutoffMs, cutoffSeq, err := parseStreamEntryId(cutoffId)
+			if err != nil {
+				errorC <- err
 				return
 			}
 
