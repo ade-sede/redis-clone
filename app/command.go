@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -55,7 +56,10 @@ func execFunc(conn *connection, multi []query) ([]byte, error) {
 
 	allResponses := make([][]byte, 0)
 	for _, query := range multi {
-		response, _, _ := execute(conn, &query, nil)
+		response, _, err := execute(conn, &query, nil)
+		if err != nil && errors.Is(err, ErrRespSimpleError) {
+			response = []byte(err.Error())
+		}
 
 		allResponses = append(allResponses, response)
 	}
