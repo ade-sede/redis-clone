@@ -146,6 +146,10 @@ func handleConnection(conn *connection, connectionToMaster bool, errorC chan err
 			continue
 		}
 
+		if command == QUEUE {
+			multi = append(multi, *q)
+		}
+
 		if command == MULTI {
 			multi = make([]query, 0)
 		}

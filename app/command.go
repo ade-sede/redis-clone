@@ -32,6 +32,7 @@ const (
 	INCR
 	MULTI
 	EXEC
+	QUEUE
 )
 
 func execFunc(multi []query) ([]byte, error) {
@@ -124,6 +125,10 @@ func execute(conn *connection, query *query, multi []query) ([]byte, command, er
 
 	command := array[0]
 	args := array[1:]
+
+	if multi != nil && !strings.EqualFold(command, "EXEC") {
+		return []byte("+QUEUED\r\n"), QUEUE, nil
+	}
 
 	if strings.EqualFold(command, "PING") {
 		response := ping()
