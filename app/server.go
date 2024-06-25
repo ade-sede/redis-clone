@@ -111,6 +111,8 @@ func main() {
 }
 
 func handleConnection(conn *connection, connectionToMaster bool, errorC chan error) {
+	var multi []query = nil
+
 	reader := bufio.NewReader(conn.handler)
 
 	for {
@@ -119,7 +121,7 @@ func handleConnection(conn *connection, connectionToMaster bool, errorC chan err
 
 		conn.mu.Lock()
 		conn.handler.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-		query, err := readResp(reader)
+		q, err := readResp(reader)
 		conn.mu.Unlock()
 
 		if err != nil {
@@ -134,7 +136,7 @@ func handleConnection(conn *connection, connectionToMaster bool, errorC chan err
 			}
 		}
 
-		response, command, err := execute(conn, query)
+		response, command, err := execute(conn, q, multi)
 		if err != nil {
 			if !connectionToMaster && errors.Is(err, ErrRespSimpleError) {
 				conn.handler.Write([]byte(err.Error()))
@@ -142,6 +144,10 @@ func handleConnection(conn *connection, connectionToMaster bool, errorC chan err
 
 			errorC <- fmt.Errorf("Error executing the command: err = %w", err)
 			continue
+		}
+
+		if command == MULTI {
+			multi = make([]query, 0)
 		}
 
 		if response != nil {
@@ -152,8 +158,8 @@ func handleConnection(conn *connection, connectionToMaster bool, errorC chan err
 			}
 		}
 
-		if query.queryType != RDBFile {
-			rawQuery := query.raw()
+		if q.queryType != RDBFile {
+			rawQuery := q.raw()
 			status.replOffset += len(rawQuery)
 
 			if command == SET || command == DEL {

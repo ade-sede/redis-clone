@@ -31,10 +31,24 @@ const (
 	XREAD
 	INCR
 	MULTI
+	EXEC
 )
 
-func multi() []byte {
-	return []byte("+OK\r\n")
+func execFunc(multi []query) ([]byte, error) {
+	if multi == nil {
+		return nil, fmt.Errorf("%w EXEC without MULTI\r\n", ErrRespSimpleError)
+	}
+
+	// Unimplemented
+	return nil, nil
+}
+
+func multiFunc(multi []query) ([]byte, error) {
+	if multi != nil {
+		return nil, fmt.Errorf("%w nested multi\r\n", ErrRespSimpleError)
+	}
+
+	return []byte("+OK\r\n"), nil
 }
 
 func ping() []byte {
@@ -84,7 +98,7 @@ master_repl_offset:%d`,
 	panic("Unreachable code")
 }
 
-func execute(conn *connection, query *query) ([]byte, command, error) {
+func execute(conn *connection, query *query, multi []query) ([]byte, command, error) {
 	if query.queryType == RDBFile {
 		fileContent := query.value.([]byte)
 		reader := bufio.NewReader(bytes.NewReader(fileContent))
@@ -199,8 +213,13 @@ func execute(conn *connection, query *query) ([]byte, command, error) {
 	}
 
 	if strings.EqualFold(command, "multi") {
-		response := multi()
-		return response, INCR, nil
+		response, err := multiFunc(multi)
+		return response, MULTI, err
+	}
+
+	if strings.EqualFold(command, "exec") {
+		response, err := execFunc(multi)
+		return response, EXEC, err
 	}
 
 	return nil, UNKNOWN, fmt.Errorf("%w unknown command '%s'", ErrRespSimpleError, command)
