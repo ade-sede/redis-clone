@@ -84,7 +84,14 @@ func incr(args []string) ([]byte, error) {
 
 	key := args[0]
 
-	entry := status.databases[status.activeDB].stringStore[key]
+	entry, ok := status.databases[status.activeDB].stringStore[key]
+
+	if !ok {
+		entry = stringEntry{
+			value:     "0",
+			expiresAt: nil,
+		}
+	}
 
 	val, err := strconv.Atoi(entry.value)
 	if err != nil {
