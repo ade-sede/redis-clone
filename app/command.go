@@ -30,7 +30,12 @@ const (
 	XRANGE
 	XREAD
 	INCR
+	MULTI
 )
+
+func multi() []byte {
+	return []byte("+OK\r\n")
+}
 
 func ping() []byte {
 	return []byte("+PONG\r\n")
@@ -191,6 +196,11 @@ func execute(conn *connection, query *query) ([]byte, command, error) {
 	if strings.EqualFold(command, "incr") {
 		response, err := incr(args)
 		return response, INCR, err
+	}
+
+	if strings.EqualFold(command, "multi") {
+		response := multi()
+		return response, INCR, nil
 	}
 
 	return nil, UNKNOWN, fmt.Errorf("%w unknown command '%s'", ErrRespSimpleError, command)
