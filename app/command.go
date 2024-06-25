@@ -29,6 +29,7 @@ const (
 	XADD
 	XRANGE
 	XREAD
+	INCR
 )
 
 func ping() []byte {
@@ -185,6 +186,11 @@ func execute(conn *connection, query *query) ([]byte, command, error) {
 	if strings.EqualFold(command, "xread") {
 		response, err := xread(args)
 		return response, XREAD, err
+	}
+
+	if strings.EqualFold(command, "incr") {
+		response, err := incr(args)
+		return response, INCR, err
 	}
 
 	return nil, UNKNOWN, fmt.Errorf("%w unknown command '%s'", ErrRespSimpleError, command)

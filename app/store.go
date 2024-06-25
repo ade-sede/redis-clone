@@ -77,6 +77,25 @@ func isExpiryDurationOption(optionName string) string {
 	return ""
 }
 
+func incr(args []string) ([]byte, error) {
+	if len(args) != 1 {
+		return nil, ErrRespWrongNumberOfArguments
+	}
+
+	key := args[0]
+
+	entry := status.databases[status.activeDB].stringStore[key]
+
+	val, err := strconv.Atoi(entry.value)
+	if err != nil {
+		return nil, err
+	}
+	entry.value = strconv.Itoa(val + 1)
+	status.databases[status.activeDB].stringStore[key] = entry
+
+	return encodeRespInteger(val + 1), nil
+}
+
 func set(args []string) ([]byte, error) {
 	var expiresAt *time.Time = nil
 	var durationMultiplier time.Duration = 0
