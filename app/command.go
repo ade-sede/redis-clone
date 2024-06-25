@@ -39,7 +39,10 @@ func execFunc(multi []query) ([]byte, error) {
 		return nil, fmt.Errorf("%w EXEC without MULTI\r\n", ErrRespSimpleError)
 	}
 
-	// Unimplemented
+	if len(multi) == 0 {
+		return []byte("*0\r\n"), nil
+	}
+
 	return nil, nil
 }
 

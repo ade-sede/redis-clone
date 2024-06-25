@@ -150,6 +150,10 @@ func handleConnection(conn *connection, connectionToMaster bool, errorC chan err
 			multi = make([]query, 0)
 		}
 
+		if command == EXEC {
+			multi = nil
+		}
+
 		if response != nil {
 			if !connectionToMaster {
 				conn.handler.Write(response)
