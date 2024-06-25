@@ -95,7 +95,7 @@ func incr(args []string) ([]byte, error) {
 
 	val, err := strconv.Atoi(entry.value)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w value is not an integer or out of range\r\n", ErrRespSimpleError)
 	}
 	entry.value = strconv.Itoa(val + 1)
 	status.databases[status.activeDB].stringStore[key] = entry
