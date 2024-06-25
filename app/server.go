@@ -154,6 +154,10 @@ func handleConnection(conn *connection, connectionToMaster bool, errorC chan err
 			multi = make([]query, 0)
 		}
 
+		if command == DISCARD {
+			multi = nil
+		}
+
 		if command == EXEC {
 			multi = nil
 		}

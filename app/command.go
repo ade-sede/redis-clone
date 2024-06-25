@@ -33,7 +33,16 @@ const (
 	MULTI
 	EXEC
 	QUEUE
+	DISCARD
 )
+
+func discard(multi []query) ([]byte, error) {
+	if multi == nil {
+		return nil, fmt.Errorf("%w DISCARD without MULTI\r\n", ErrRespSimpleError)
+	}
+
+	return []byte("+OK\r\n"), nil
+}
 
 func execFunc(conn *connection, multi []query) ([]byte, error) {
 	if multi == nil {
@@ -133,7 +142,10 @@ func execute(conn *connection, query *query, multi []query) ([]byte, command, er
 	command := array[0]
 	args := array[1:]
 
-	if multi != nil && !strings.EqualFold(command, "EXEC") && !strings.EqualFold(command, "MULTI") {
+	if multi != nil &&
+		!strings.EqualFold(command, "EXEC") &&
+		!strings.EqualFold(command, "MULTI") &&
+		!strings.EqualFold(command, "DISCARD") {
 		return []byte("+QUEUED\r\n"), QUEUE, nil
 	}
 
@@ -235,6 +247,11 @@ func execute(conn *connection, query *query, multi []query) ([]byte, command, er
 	if strings.EqualFold(command, "exec") {
 		response, err := execFunc(conn, multi)
 		return response, EXEC, err
+	}
+
+	if strings.EqualFold(command, "discard") {
+		response, err := discard(multi)
+		return response, DISCARD, err
 	}
 
 	return nil, UNKNOWN, fmt.Errorf("%w unknown command '%s'", ErrRespSimpleError, command)
