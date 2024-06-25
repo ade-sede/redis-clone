@@ -35,7 +35,7 @@ const (
 	QUEUE
 )
 
-func execFunc(multi []query) ([]byte, error) {
+func execFunc(conn *connection, multi []query) ([]byte, error) {
 	if multi == nil {
 		return nil, fmt.Errorf("%w EXEC without MULTI\r\n", ErrRespSimpleError)
 	}
@@ -44,7 +44,14 @@ func execFunc(multi []query) ([]byte, error) {
 		return []byte("*0\r\n"), nil
 	}
 
-	return nil, nil
+	allResponses := make([][]byte, 0)
+	for _, query := range multi {
+		response, _, _ := execute(conn, &query, nil)
+
+		allResponses = append(allResponses, response)
+	}
+
+	return encodeRespArray(allResponses), nil
 }
 
 func multiFunc(multi []query) ([]byte, error) {
@@ -126,7 +133,7 @@ func execute(conn *connection, query *query, multi []query) ([]byte, command, er
 	command := array[0]
 	args := array[1:]
 
-	if multi != nil && !strings.EqualFold(command, "EXEC") {
+	if multi != nil && !strings.EqualFold(command, "EXEC") && !strings.EqualFold(command, "MULTI") {
 		return []byte("+QUEUED\r\n"), QUEUE, nil
 	}
 
@@ -226,7 +233,7 @@ func execute(conn *connection, query *query, multi []query) ([]byte, command, er
 	}
 
 	if strings.EqualFold(command, "exec") {
-		response, err := execFunc(multi)
+		response, err := execFunc(conn, multi)
 		return response, EXEC, err
 	}
 
