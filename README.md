@@ -3,11 +3,12 @@ A Redis clone for educational purposes, following Codecrafter's ["Build Your Own
 # Scope
 
 - Replication
-- Persistence
+- Persistence (strings are the only data type persisted and loaded from file at the moment)
 - Strings
-- Streams (no persistence)
+- Streams
 - Fullresync (RDB file over the network)
-- Basic commands such as `SET`, `DEL`, `GET`, `WAIT`, `KEYS`, `XADD`, `XRANGE`, `XREAD` etc ...
+- Transactions (doesn't mix well with replication at the moment)
+- Basic commands: `SET`, `DEL`, `GET`, `WAIT`, `KEYS`, `XADD`, `XRANGE`, `XREAD`, `INCR`, `MULTI`, `EXEC`, `DISCARD`
 
 # Usage
 
@@ -42,3 +43,4 @@ $> redis-cli -p 6667 get anotherkey # anothervalue
 - Fix flaky ordering of keys when reading multiple streams with `XREAD`
 - Figure out proper logic around returns for `XREAD` and `XRANGE`.
 - Persist stream to disk (and decode when reading RDB file)
+- Replication + Transaction -> multi is never sent, queued commands are only sent once exec is launched
